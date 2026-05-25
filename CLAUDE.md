@@ -91,6 +91,8 @@ api.web (SPA embed)                              ← serves TanStack client _she
 - **`gen-types` is one-way** — Go `Tick` → TS `TickFrame`. Hand-editing the generated file gets stomped. Add fields in `tick.go` first, then `parquetRow`, then regenerate.
 - **Stint detector requires `categorize(t) == race`** for path-sample collection — only circuit stints get corner detection (sprint stints have no laps by definition). Free-roam stints skip path collection to save memory.
 - **`CurrentRaceTime > 0` is the freeroam-vs-race discriminator** today — see `data-needed.md` for confirmation status against real race captures.
+- **DuckDB is single-writer.** Only one `forza-telemetry serve` process can hold the lock on `forza.duckdb` at a time. Starting a second instance fails with `Could not set lock on file ... Conflicting lock is held in <other-pid>`. Kill the prior process (`pgrep -f forza-telemetry | xargs kill`) before relaunching.
+- **Vite 8 uses rolldown, which logs `INVALID_ANNOTATION` non-fatally** against HeroUI Pro's pre-minified `/*#__PURE__*/` comments. `vite.config.ts` filters them via `build.rollupOptions.onwarn`. Build still succeeds either way; the filter is to keep real warnings visible.
 
 ## Workflow conventions
 
