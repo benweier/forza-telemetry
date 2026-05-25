@@ -125,13 +125,39 @@
 .glass-dark,
 [data-theme="glass-dark"] {
     color-scheme: dark;
+
+    /* --- Dark theme base tokens (override Glass defaults that ship light) --- */
+    --background: oklch(0.15 0.003 240);
+    --foreground: oklch(99.11% 0 0); /* snow */
+    --surface: oklch(1 0 0 / 4%);
+    --surface-foreground: oklch(99.11% 0 0);
+    --surface-secondary: oklch(from color-mix(in oklab, var(--surface) 100%, var(--foreground) 6%) l c h / 0.1);
+    --surface-tertiary: oklch(from color-mix(in oklab, var(--surface) 100%, var(--foreground) 6%) l c h / 0.2);
+    --overlay: oklch(1 0 0 / 5%);
+    --overlay-foreground: oklch(99.11% 0 0);
+    --accent: oklch(0.98 0.001 240);
+    /* Dark mode: accent is near-white so accent-foreground MUST invert to dark
+     * (eclipse) for contrast against the light button surface — overriding
+     * DESIGN.md's snow-on-snow which would be unreadable. */
+    --accent-foreground: oklch(21.03% 0.0059 285.89);
+    --default: oklch(1 0 0 / 8%);
+    --default-foreground: oklch(99.11% 0 0);
+    --separator: oklch(1 0 0 / 12%);
+    --link: oklch(99.11% 0 0);
+    --focus: oklch(0.98 0.001 240);
+    --field-background: oklch(1 0 0 / 8%);
+    --field-border: oklch(1 0 0 / 4%);
+    --field-foreground: oklch(99.11% 0 0);
+    --backdrop: oklch(0 0 0 / 0.3);
+
     /* Theme Colors */
     --muted: oklch(70.5% 0.006 253.83);
     --scrollbar: oklch(70.5% 0.003 253.83);
-    --surface-secondary-foreground: oklch(25.7% 0 253.83);
-    --surface-tertiary-foreground: oklch(27.21% 0 253.83);
+    --surface-secondary-foreground: oklch(99.11% 0 0);
+    --surface-tertiary-foreground: oklch(99.11% 0 0);
     --field-placeholder: oklch(70.5% 0 253.83);
     --segment: oklch(39.64% 0.003 253.83);
+    --segment-foreground: oklch(99.11% 0 0);
     --border: oklch(28% 0.003 253.83);
 
     /* Calculated Colors */
