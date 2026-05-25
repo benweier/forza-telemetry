@@ -79,9 +79,14 @@ func insertPreviewSamples(db *sql.DB, stintID, escapedPath string) error {
 INSERT INTO preview_samples
   (stint_id, second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
    throttle_pct, brake_pct, rpm, pos_x, pos_z, lap_number)
+-- second_index must match the bucket the row was partitioned into.
+-- Deriving it from (ns - MIN(ns)) // 1e9 produces duplicates when the
+-- earliest row lands mid-second: two surviving rows can both round to 0.
+-- The bucket value itself (ns // 1e9) is already the canonical key, so
+-- offset it by MIN(bucket) to get a 0-based monotonic series.
 SELECT
   ?,
-  CAST((server_recv_ns - MIN(server_recv_ns) OVER ()) // 1000000000 AS INTEGER),
+  CAST(bucket - MIN(bucket) OVER () AS INTEGER),
   server_recv_ns,
   speed_ms,
   lateral_g,
@@ -93,10 +98,12 @@ SELECT
   pos_z,
   lap_number
 FROM (
-  SELECT *, ROW_NUMBER() OVER (
-    PARTITION BY server_recv_ns // 1000000000
-    ORDER BY server_recv_ns
-  ) AS rn
+  SELECT *,
+    server_recv_ns // 1000000000 AS bucket,
+    ROW_NUMBER() OVER (
+      PARTITION BY server_recv_ns // 1000000000
+      ORDER BY server_recv_ns
+    ) AS rn
   FROM read_parquet('%s')
 )
 WHERE rn = 1
