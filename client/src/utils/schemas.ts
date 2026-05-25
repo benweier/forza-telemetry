@@ -125,6 +125,7 @@ export const PreviewSampleSchema = v.object({
   brake_pct: NullableNumber,
   rpm: NullableNumber,
   pos_x: NullableNumber,
+  pos_y: NullableNumber,
   pos_z: NullableNumber,
   lap_number: NullableNumber,
 });
