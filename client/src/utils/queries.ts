@@ -1,0 +1,64 @@
+/**
+ * TanStack Query `queryOptions` factories for the REST v1 endpoints.
+ *
+ * Each factory returns a `queryOptions(...)` object ready for `useQuery`,
+ * `prefetchQuery`, route loaders, and `useSuspenseQuery`. Keys are tuple-
+ * shaped so React Query's selectQueries/invalidate patterns work cleanly.
+ */
+import { queryOptions } from "@tanstack/react-query";
+import { fetchAndParse } from "~/utils/api";
+import {
+  CornersResponseSchema,
+  HotSpotsResponseSchema,
+  LapsResponseSchema,
+  PreviewResponseSchema,
+  SessionDetailSchema,
+  SessionsListResponseSchema,
+  StintDetailSchema,
+} from "~/utils/schemas";
+
+// --- Sessions ---
+
+export const sessionsListQuery = () =>
+  queryOptions({
+    queryKey: ["sessions"] as const,
+    queryFn: () => fetchAndParse("/sessions", SessionsListResponseSchema),
+  });
+
+export const sessionQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["sessions", id] as const,
+    queryFn: () => fetchAndParse(`/sessions/${id}`, SessionDetailSchema),
+  });
+
+// --- Stints + sub-resources ---
+
+export const stintQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}`, StintDetailSchema),
+  });
+
+export const lapsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id, "laps"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/laps`, LapsResponseSchema),
+  });
+
+export const hotSpotsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id, "hot-spots"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/hot-spots`, HotSpotsResponseSchema),
+  });
+
+export const cornersQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id, "corners"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/corners`, CornersResponseSchema),
+  });
+
+export const previewQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id, "preview"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/preview`, PreviewResponseSchema),
+  });
