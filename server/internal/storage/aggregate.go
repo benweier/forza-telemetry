@@ -78,7 +78,7 @@ func insertPreviewSamples(db *sql.DB, stintID, escapedPath string) error {
 	q := fmt.Sprintf(`
 INSERT INTO preview_samples
   (stint_id, second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
-   throttle_pct, brake_pct, rpm, pos_x, pos_z, lap_number)
+   throttle_pct, brake_pct, rpm, pos_x, pos_y, pos_z, lap_number)
 -- second_index must match the bucket the row was partitioned into.
 -- Deriving it from (ns - MIN(ns)) // 1e9 produces duplicates when the
 -- earliest row lands mid-second: two surviving rows can both round to 0.
@@ -95,6 +95,7 @@ SELECT
   brake_pct,
   engine_rpm,
   pos_x,
+  pos_y,
   pos_z,
   lap_number
 FROM (

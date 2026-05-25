@@ -90,16 +90,74 @@ var schemaStatements = []string{
 		brake_pct       DOUBLE,
 		rpm             DOUBLE,
 		pos_x           DOUBLE,
+		pos_y           DOUBLE,
 		pos_z           DOUBLE,
 		lap_number      INTEGER,
 		PRIMARY KEY (stint_id, second_index)
 	)`,
+	`ALTER TABLE preview_samples ADD COLUMN IF NOT EXISTS pos_y DOUBLE`,
 }
 
 func migrate(db *sql.DB) error {
 	for i, stmt := range schemaStatements {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("schema statement %d: %w", i, err)
+		}
+	}
+	if err := backfillPreviewPosY(db); err != nil {
+		return fmt.Errorf("backfill pos_y: %w", err)
+	}
+	return nil
+}
+
+// backfillPreviewPosY repopulates preview_samples.pos_y for stints aggregated
+// before the column existed. The column was added via ALTER TABLE ... ADD COLUMN,
+// which leaves existing rows NULL. The parquet files still hold pos_y at full
+// resolution, so we join by tick_ns and patch row-by-stint. Idempotent: the
+// WHERE pos_y IS NULL clause makes a second run a no-op.
+func backfillPreviewPosY(db *sql.DB) error {
+	var needBackfill int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM preview_samples WHERE pos_y IS NULL`,
+	).Scan(&needBackfill); err != nil {
+		return fmt.Errorf("count: %w", err)
+	}
+	if needBackfill == 0 {
+		return nil
+	}
+	rows, err := db.Query(`
+		SELECT DISTINCT s.id, s.parquet_path
+		FROM stints s
+		JOIN preview_samples ps ON ps.stint_id = s.id
+		WHERE ps.pos_y IS NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("list stints: %w", err)
+	}
+	type stintRef struct {
+		id, path string
+	}
+	var refs []stintRef
+	for rows.Next() {
+		var r stintRef
+		if err := rows.Scan(&r.id, &r.path); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	rows.Close()
+	for _, r := range refs {
+		q := fmt.Sprintf(`
+			UPDATE preview_samples
+			SET pos_y = pq.pos_y
+			FROM (SELECT server_recv_ns, pos_y FROM read_parquet('%s')) pq
+			WHERE preview_samples.stint_id = ?
+			  AND preview_samples.tick_ns = pq.server_recv_ns
+			  AND preview_samples.pos_y IS NULL
+		`, escapeSQLLiteral(r.path))
+		if _, err := db.Exec(q, r.id); err != nil {
+			return fmt.Errorf("update %s: %w", r.id, err)
 		}
 	}
 	return nil
