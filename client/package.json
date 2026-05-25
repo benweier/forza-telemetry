@@ -14,6 +14,9 @@
     "format:check": "oxfmt --check"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.3.2",
+    "@deck.gl/layers": "^9.3.2",
+    "@deck.gl/react": "^9.3.2",
     "@heroui-pro/react": "1.0.0-beta.4",
     "@heroui/react": "^3.0.5",
     "@heroui/styles": "^3.0.5",
