@@ -101,7 +101,7 @@ export function TickPreviewChart({ samples }: TickPreviewChartProps) {
           value: (_u, v) => (v == null ? "—" : `${v.toFixed(1)} m/s`),
         },
         {
-          label: "|Lateral G|",
+          label: "Lateral G",
           stroke: warning,
           width: 1.5,
           scale: "lat",
