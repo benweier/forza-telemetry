@@ -1,27 +1,17 @@
+import { EmptyState } from "@heroui-pro/react";
 /* Hallmark · component: stint-detail · genre: dashboard · theme: Glass */
 import { Chip, Skeleton } from "@heroui/react";
-import { EmptyState } from "@heroui-pro/react";
-import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@iconify/react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { TickPreviewChart } from "~/components/TickPreviewChart";
+import { TrackPathMap } from "~/components/TrackPathMap";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
-import {
-  cornersQuery,
-  hotSpotsQuery,
-  lapsQuery,
-  previewQuery,
-  stintQuery,
-} from "~/utils/queries";
-import type {
-  Corner,
-  HotSpot,
-  Lap,
-  StintDetail,
-  StintSummary,
-} from "~/utils/schemas";
+import { cornersQuery, hotSpotsQuery, lapsQuery, previewQuery, stintQuery } from "~/utils/queries";
+import type { Corner, HotSpot, Lap, StintDetail, StintSummary } from "~/utils/schemas";
 
 export const Route = createFileRoute("/stints/$stintId")({
+  component: StintDetailRoute,
   loader: ({ context, params }) => {
     // Prefetch the primary record + key sub-resources in parallel; failures
     // fall through to in-component error UI, not the root boundary.
@@ -34,7 +24,6 @@ export const Route = createFileRoute("/stints/$stintId")({
       context.queryClient.prefetchQuery(lapsQuery(id)),
     ]);
   },
-  component: StintDetailRoute,
 });
 
 function StintDetailRoute() {
@@ -57,10 +46,12 @@ function StintDetailRoute() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_minmax(0,20rem)]">
         <div className="flex flex-col gap-4">
+          <SectionHeading>Track path</SectionHeading>
+          {preview.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
+          {preview.data && <TrackPathMap samples={preview.data.samples} />}
+
           <SectionHeading>Preview</SectionHeading>
-          {preview.isLoading && (
-            <Skeleton className="h-[320px] w-full rounded-2xl" />
-          )}
+          {preview.isLoading && <Skeleton className="h-80 w-full rounded-2xl" />}
           {preview.data && <TickPreviewChart samples={preview.data.samples} />}
         </div>
 
@@ -79,22 +70,26 @@ function StintDetailRoute() {
 function Breadcrumb({ stintId, sessionId }: { stintId: string; sessionId?: string }) {
   return (
     <nav aria-label="Breadcrumb" className="text-sm text-muted">
-      <Link to="/sessions" className="no-underline text-muted hover:text-foreground">
+      <Link to="/sessions" className="text-muted no-underline hover:text-foreground">
         Sessions
       </Link>
-      <span aria-hidden className="px-2">/</span>
+      <span aria-hidden className="px-2">
+        /
+      </span>
       {sessionId ? (
         <Link
           to="/sessions/$sessionId"
           params={{ sessionId }}
-          className="no-underline font-mono text-muted hover:text-foreground"
+          className="font-mono text-muted no-underline hover:text-foreground"
         >
           {sessionId}
         </Link>
       ) : (
         <span className="font-mono text-muted">—</span>
       )}
-      <span aria-hidden className="px-2">/</span>
+      <span aria-hidden className="px-2">
+        /
+      </span>
       <span className="font-mono text-foreground">{stintId}</span>
     </nav>
   );
@@ -105,19 +100,19 @@ function Header({ stint }: { stint: StintDetail }) {
   return (
     <header className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted">
-          Stint
-        </span>
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">Stint</span>
         {stint.stint_type && (
-          <Chip size="sm" variant="soft">{stint.stint_type}</Chip>
+          <Chip size="sm" variant="soft">
+            {stint.stint_type}
+          </Chip>
         )}
         {stint.car.ordinal !== null && stint.car.ordinal !== 0 && (
-          <span className="text-xs text-muted tabular-nums">
-            car #{stint.car.ordinal}
-          </span>
+          <span className="text-xs text-muted tabular-nums">car #{stint.car.ordinal}</span>
         )}
         {inProgress && (
-          <Chip size="sm" variant="soft" color="success">Live</Chip>
+          <Chip size="sm" variant="soft" color="success">
+            Live
+          </Chip>
         )}
       </div>
       <h1 className="font-mono text-2xl font-semibold tracking-tight text-foreground">
@@ -125,7 +120,10 @@ function Header({ stint }: { stint: StintDetail }) {
       </h1>
       <dl className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
         <StatPair label="Started" value={formatDateTime(stint.started_at_ns)} />
-        <StatPair label="Duration" value={formatDurationNS(stint.started_at_ns, stint.ended_at_ns)} />
+        <StatPair
+          label="Duration"
+          value={formatDurationNS(stint.started_at_ns, stint.ended_at_ns)}
+        />
         <StatPair label="Ticks" value={formatCount(stint.tick_count)} />
       </dl>
     </header>
@@ -142,26 +140,26 @@ function StatPair({ label, value }: { label: string; value: string }) {
 }
 
 function SummaryStats({ summary }: { summary: StintSummary }) {
-  const cells: Array<{ label: string; value: string | null; sub?: string }> = [
+  const cells: { label: string; value: string | null; sub?: string }[] = [
     {
       label: "Top speed",
-      value: summary.top_speed_ms !== null ? `${(summary.top_speed_ms * 3.6).toFixed(0)}` : null,
       sub: "km/h",
+      value: summary.top_speed_ms !== null ? `${(summary.top_speed_ms * 3.6).toFixed(0)}` : null,
     },
     {
       label: "Distance",
-      value: summary.distance_m !== null ? `${(summary.distance_m / 1000).toFixed(2)}` : null,
       sub: "km",
+      value: summary.distance_m !== null ? `${(summary.distance_m / 1000).toFixed(2)}` : null,
     },
     {
       label: "Peak lat G",
-      value: summary.peak_lateral_g !== null ? summary.peak_lateral_g.toFixed(2) : null,
       sub: "G",
+      value: summary.peak_lateral_g !== null ? summary.peak_lateral_g.toFixed(2) : null,
     },
     {
       label: "Peak brake",
-      value: summary.peak_brake_pct !== null ? `${Math.round(summary.peak_brake_pct * 100)}` : null,
       sub: "%",
+      value: summary.peak_brake_pct !== null ? `${Math.round(summary.peak_brake_pct * 100)}` : null,
     },
     {
       label: "Max RPM",
@@ -173,7 +171,9 @@ function SummaryStats({ summary }: { summary: StintSummary }) {
     },
   ];
   const shown = cells.filter((c) => c.value !== null);
-  if (shown.length === 0) return null;
+  if (shown.length === 0) {
+    return null;
+  }
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -184,7 +184,7 @@ function SummaryStats({ summary }: { summary: StintSummary }) {
         >
           <span className="text-xs text-muted">{c.label}</span>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold leading-none tabular-nums text-foreground">
+            <span className="text-2xl leading-none font-semibold text-foreground tabular-nums">
               {c.value}
             </span>
             {c.sub && <span className="text-xs text-muted">{c.sub}</span>}
@@ -209,32 +209,23 @@ function DetailError({ stintId }: { stintId: string }) {
   return (
     <div className="rounded-2xl bg-surface p-8 text-center shadow-surface">
       <Icon icon="lucide:circle-alert" className="mx-auto size-6 text-danger" />
-      <h2 className="mt-3 text-base font-semibold text-foreground">
-        Couldn't load stint
-      </h2>
+      <h2 className="mt-3 text-base font-semibold text-foreground">Couldn't load stint</h2>
       <p className="mt-1 text-sm text-muted">
-        <span className="font-mono">{stintId}</span> may not exist, or the server is
-        unreachable.
+        <span className="font-mono">{stintId}</span> may not exist, or the server is unreachable.
       </p>
     </div>
   );
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-xs font-medium uppercase tracking-wider text-muted">{children}</h2>
-  );
+  return <h2 className="text-xs font-medium tracking-wider text-muted uppercase">{children}</h2>;
 }
 
 // ---------- Side panel cards ----------
 
 type QueryResult<T> = ReturnType<typeof useQuery<T>>;
 
-function HotSpotsCard({
-  query,
-}: {
-  query: QueryResult<{ hot_spots: HotSpot[] }>;
-}) {
+function HotSpotsCard({ query }: { query: QueryResult<{ hot_spots: HotSpot[] }> }) {
   const hot = query.data?.hot_spots ?? [];
   return (
     <Card title="Hot-spots" icon="lucide:flame" count={hot.length}>
@@ -243,7 +234,7 @@ function HotSpotsCard({
         <EmptyLine>No peaks above default thresholds.</EmptyLine>
       )}
       {hot.length > 0 && (
-        <ul className="flex flex-col gap-2" role="list">
+        <ul className="flex flex-col gap-2">
           {hot.map((h) => (
             <li
               key={h.id}
@@ -253,7 +244,7 @@ function HotSpotsCard({
                 <span className="truncate text-sm font-medium text-foreground">{h.label}</span>
                 <span className="text-xs text-muted">{hotSpotTypeLabel(h.type)}</span>
               </div>
-              <span className="text-xs tabular-nums text-muted">
+              <span className="text-xs text-muted tabular-nums">
                 {formatDurationNS(h.started_at_ns, h.ended_at_ns)}
               </span>
             </li>
@@ -264,11 +255,7 @@ function HotSpotsCard({
   );
 }
 
-function CornersCard({
-  query,
-}: {
-  query: QueryResult<{ corners: Corner[] }>;
-}) {
+function CornersCard({ query }: { query: QueryResult<{ corners: Corner[] }> }) {
   const corners = query.data?.corners ?? [];
   return (
     <Card title="Corners" icon="lucide:rotate-3d" count={corners.length}>
@@ -277,7 +264,7 @@ function CornersCard({
         <EmptyLine>Corners are detected only for circuit stints.</EmptyLine>
       )}
       {corners.length > 0 && (
-        <ul className="flex flex-col gap-2" role="list">
+        <ul className="flex flex-col gap-2">
           {corners.map((c) => (
             <li
               key={c.id}
@@ -291,7 +278,7 @@ function CornersCard({
                   {c.direction} · {c.peak_lateral_g.toFixed(2)}G
                 </span>
               </div>
-              <span className="text-xs tabular-nums text-muted">
+              <span className="text-xs text-muted tabular-nums">
                 κ {c.peak_curvature.toFixed(3)}
               </span>
             </li>
@@ -304,7 +291,7 @@ function CornersCard({
 
 function LapsCard({ query }: { query: QueryResult<{ laps: Lap[] }> }) {
   // Lap 0 is the pre-race / out-lap chunk before LapNumber increments — skip
-  // it in the summary panel since its lap_time_s is not a complete lap.
+  // It in the summary panel since its lap_time_s is not a complete lap.
   const laps = (query.data?.laps ?? []).filter((l) => l.lap_number > 0);
   return (
     <Card title="Laps" icon="lucide:flag" count={laps.length}>
@@ -313,7 +300,7 @@ function LapsCard({ query }: { query: QueryResult<{ laps: Lap[] }> }) {
         <EmptyLine>No completed laps in this stint.</EmptyLine>
       )}
       {laps.length > 0 && (
-        <ul className="flex flex-col gap-2" role="list">
+        <ul className="flex flex-col gap-2">
           {laps.map((l) => (
             <li
               key={l.lap_number}
@@ -349,11 +336,9 @@ function Card({
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon icon={icon} className="size-4 text-muted" />
-          <span className="text-xs font-medium uppercase tracking-wider text-muted">
-            {title}
-          </span>
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">{title}</span>
         </div>
-        <span className="text-xs tabular-nums text-muted">{count}</span>
+        <span className="text-xs text-muted tabular-nums">{count}</span>
       </header>
       {children}
     </section>
@@ -376,9 +361,17 @@ function ListSkeleton({ rows }: { rows: number }) {
 
 function hotSpotTypeLabel(t: string) {
   switch (t) {
-    case "peak_lateral_g": return "Lateral G peak";
-    case "peak_brake": return "Brake peak";
-    case "top_speed": return "Top speed";
-    default: return t;
+    case "peak_lateral_g": {
+      return "Lateral G peak";
+    }
+    case "peak_brake": {
+      return "Brake peak";
+    }
+    case "top_speed": {
+      return "Top speed";
+    }
+    default: {
+      return t;
+    }
   }
 }
