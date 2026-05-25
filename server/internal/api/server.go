@@ -52,6 +52,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/corners", s.handleListCorners)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/preview", s.handleListPreview)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/ticks", s.handleListTicks)
+	s.mux.HandleFunc("GET /api/v1/stints/{id}/path", s.handleListPath)
 
 	s.mux.HandleFunc("GET /api/v1/live", s.handleLiveWS)
 
