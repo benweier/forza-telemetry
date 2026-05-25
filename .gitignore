@@ -1,0 +1,31 @@
+# Build artifacts
+/server/bin/
+/server/dist/
+/server/internal/web/dist/*
+!/server/internal/web/dist/.gitkeep
+/client/dist/
+/client/.tanstack/
+/node_modules/
+
+# Go
+/server/vendor/
+*.test
+*.out
+coverage.*
+
+# Data (runtime - lives at XDG paths, but ignore any local ./data overrides)
+/data/
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Env
+.env
+.env.local
