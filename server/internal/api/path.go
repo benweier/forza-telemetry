@@ -11,7 +11,7 @@ import (
 // Path columns are fixed — the endpoint exists to drive 3D path rendering.
 // Keeping it narrow avoids cgo-DuckDB-Scan() blow-up for tight loops and
 // keeps the JSON payload small.
-var pathColumns = []string{"server_recv_ns", "pos_x", "pos_y", "pos_z", "speed_ms"}
+var pathColumns = []string{"server_recv_ns", "pos_x", "pos_y", "pos_z", "speed_ms", "lap_number"}
 
 // defaultPathStep — Forza ships ~60Hz over Data Out. step=6 leaves ~10Hz,
 // roughly 5–8m sample spacing at typical race speeds. Tuned for visual
@@ -47,7 +47,7 @@ func (s *Server) handleListPath(w http.ResponseWriter, r *http.Request) {
 	// SELECT projects the fixed column list to keep the response shape
 	// stable regardless of parquet column order.
 	q := fmt.Sprintf(`
-		SELECT server_recv_ns, pos_x, pos_y, pos_z, speed_ms
+		SELECT server_recv_ns, pos_x, pos_y, pos_z, speed_ms, lap_number
 		FROM (
 			SELECT *, ROW_NUMBER() OVER (ORDER BY server_recv_ns) AS rn
 			FROM read_parquet('%s')
