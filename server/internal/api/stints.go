@@ -188,6 +188,7 @@ type previewRow struct {
 	BrakePct       nullableFloat64 `json:"brake_pct"`
 	RPM            nullableFloat64 `json:"rpm"`
 	PosX           nullableFloat64 `json:"pos_x"`
+	PosY           nullableFloat64 `json:"pos_y"`
 	PosZ           nullableFloat64 `json:"pos_z"`
 	LapNumber      nullableInt64   `json:"lap_number"`
 }
@@ -196,7 +197,7 @@ func (s *Server) handleListPreview(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	rows, err := s.store.DB().Query(`
 		SELECT second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
-		       throttle_pct, brake_pct, rpm, pos_x, pos_z, lap_number
+		       throttle_pct, brake_pct, rpm, pos_x, pos_y, pos_z, lap_number
 		FROM preview_samples WHERE stint_id = ? ORDER BY second_index`, id)
 	if err != nil {
 		s.internalError(w, "list_preview", err)
@@ -207,7 +208,7 @@ func (s *Server) handleListPreview(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p previewRow
 		if err := rows.Scan(&p.SecondIndex, &p.TickNS, &p.SpeedMS, &p.LateralG, &p.LongitudinalG,
-			&p.ThrottlePct, &p.BrakePct, &p.RPM, &p.PosX, &p.PosZ, &p.LapNumber); err != nil {
+			&p.ThrottlePct, &p.BrakePct, &p.RPM, &p.PosX, &p.PosY, &p.PosZ, &p.LapNumber); err != nil {
 			s.internalError(w, "list_preview scan", err)
 			return
 		}

@@ -61,8 +61,8 @@ func newTestServer(t *testing.T) *Server {
 		fixStintID+"_lap0_corner1", fixStintID)
 	mustExec(t, db, `INSERT INTO preview_samples
 	                 (stint_id, second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
-	                  throttle_pct, brake_pct, rpm, pos_x, pos_z, lap_number)
-	                 VALUES (?, 0, 1100000000, 25.0, 0.5, 0.2, 0.6, 0.0, 5500.0, 100.0, 200.0, 0)`,
+	                  throttle_pct, brake_pct, rpm, pos_x, pos_y, pos_z, lap_number)
+	                 VALUES (?, 0, 1100000000, 25.0, 0.5, 0.2, 0.6, 0.0, 5500.0, 100.0, 12.5, 200.0, 0)`,
 		fixStintID)
 
 	broker := stream.NewBroker(8)
