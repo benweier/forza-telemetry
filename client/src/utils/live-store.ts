@@ -5,6 +5,8 @@ const RING_SIZE = 3600;
 
 interface LiveState {
   connected: boolean;
+  /** Wall-clock ms of the most recent push — used to detect a stale feed. */
+  lastPushedAt: number | null;
   latest: TickFrame | null;
   ring: TickFrame[];
   setConnected(connected: boolean): void;
@@ -14,6 +16,7 @@ interface LiveState {
 
 export const useLiveStore = create<LiveState>((set, get) => ({
   connected: false,
+  lastPushedAt: null,
   latest: null,
   ring: [],
   setConnected: (connected) => set({ connected }),
@@ -21,7 +24,7 @@ export const useLiveStore = create<LiveState>((set, get) => ({
     const next = get().ring;
     next.push(tick);
     if (next.length > RING_SIZE) next.shift();
-    set({ latest: tick, ring: next });
+    set({ latest: tick, ring: next, lastPushedAt: Date.now() });
   },
-  clear: () => set({ latest: null, ring: [] }),
+  clear: () => set({ latest: null, ring: [], lastPushedAt: null }),
 }));
