@@ -1,0 +1,27 @@
+{
+  "ignorePatterns": ["dist", "node_modules", "src/routeTree.gen.ts", "pnpm-lock.yaml"],
+  "sortImports": {
+    "customGroups": [
+      {
+        "groupName": "internal-alias",
+        "elementNamePattern": ["^@/"]
+      }
+    ],
+    "groups": [
+      "value-builtin",
+      "value-external",
+      "internal-alias",
+      "value-internal",
+      "value-parent",
+      "value-sibling",
+      "value-index",
+      ["type-import", "type-internal", "type-parent", "type-sibling", "type-index"],
+      "unknown"
+    ],
+    "newlinesBetween": false
+  },
+  "sortTailwindcss": {
+    "stylesheet": "./src/styles/app.css",
+    "functions": ["clsx", "cn", "twMerge", "tw"]
+  }
+}
