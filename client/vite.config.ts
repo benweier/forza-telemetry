@@ -8,6 +8,18 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  build: {
+    // Suppress rolldown's INVALID_ANNOTATION spam from HeroUI Pro's
+    // pre-minified `/*#__PURE__*/` comments — they sit at positions
+    // rolldown's strict parser ignores. Non-fatal (build still succeeds);
+    // just noisy. Filter so real errors remain visible.
+    rollupOptions: {
+      onwarn(warning, defaultHandler) {
+        if (warning.code === "INVALID_ANNOTATION") return;
+        defaultHandler(warning);
+      },
+    },
+  },
   server: {
     port: 3000,
     proxy: {
