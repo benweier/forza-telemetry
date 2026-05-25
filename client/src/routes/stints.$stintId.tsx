@@ -57,7 +57,9 @@ function StintDetailRoute() {
         <div className="flex flex-col gap-4">
           <SectionHeading>Track path</SectionHeading>
           {path.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
-          {path.data && <TrackPathMap path={path.data} />}
+          {path.data && (
+            <TrackPathMap path={path.data} hotSpots={hotSpots.data?.hot_spots} />
+          )}
 
           <SectionHeading>Preview</SectionHeading>
           {preview.isLoading && <Skeleton className="h-80 w-full rounded-2xl" />}

@@ -1,34 +1,41 @@
 /* Hallmark · component: track-path-map · genre: dashboard · theme: Glass
- * 3D track-path minimap. Reads /stints/{id}/path (column-oriented, ~10Hz by
- * default) and renders a speed-coloured polyline under an OrbitView. Per-
- * segment colour via LineLayer (one segment per consecutive sample pair).
+ * 3D track-path minimap. Renders the speed-coloured polyline plus picked
+ * hot-spot markers (lateral G peak / braking peak / top speed) under an
+ * OrbitView. Hover tooltips on either layer surface the underlying data
+ * (speed + lap on segments, label + magnitude on hot-spots).
  */
-import { COORDINATE_SYSTEM, OrbitView } from "@deck.gl/core";
-import { LineLayer } from "@deck.gl/layers";
+import { COORDINATE_SYSTEM, OrbitView, type PickingInfo } from "@deck.gl/core";
+import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
-import type { PathResponse } from "~/utils/schemas";
+import type { HotSpot, PathResponse } from "~/utils/schemas";
 
 interface TrackPathMapProps {
   path: PathResponse;
+  hotSpots?: HotSpot[];
 }
 
 interface Segment {
   source: [number, number, number];
   target: [number, number, number];
   speed: number;
+  lap: number | null;
+  tickNS: number;
 }
 
-/**
- * Forza axes → deck.gl OrbitView mapping:
- *  - Forza pos_x (lateral)      → deck x
- *  - Forza pos_y (vertical)     → deck y  (OrbitView treats +Y as up)
- *  - Forza pos_z (longitudinal) → deck z
- * Camera target is the path centroid so the track sits at the origin regardless
- * of where the world coords land (Forza world coords drift into the thousands).
- */
-export function TrackPathMap({ path }: TrackPathMapProps) {
-  const { segments, extent } = useMemo(() => buildSegments(path), [path]);
+interface HotSpotMarker {
+  id: string;
+  pos: [number, number, number];
+  type: string;
+  label: string;
+  value: number;
+}
+
+export function TrackPathMap({ path, hotSpots }: TrackPathMapProps) {
+  const { segments, markers, extent } = useMemo(
+    () => buildScene(path, hotSpots ?? []),
+    [path, hotSpots],
+  );
 
   if (segments.length < 1) {
     return (
@@ -55,6 +62,23 @@ export function TrackPathMap({ path }: TrackPathMapProps) {
       getWidth: 3,
       widthUnits: "pixels",
       widthMinPixels: 2,
+      pickable: true,
+    }),
+    new ScatterplotLayer<HotSpotMarker>({
+      id: "hot-spots",
+      data: markers,
+      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+      getPosition: (m) => m.pos,
+      getFillColor: (m) => hotSpotColor(m.type),
+      getLineColor: [255, 255, 255, 220],
+      getRadius: 6,
+      radiusUnits: "pixels",
+      radiusMinPixels: 4,
+      radiusMaxPixels: 10,
+      stroked: true,
+      lineWidthUnits: "pixels",
+      getLineWidth: 1.5,
+      pickable: true,
     }),
   ];
 
@@ -74,35 +98,58 @@ export function TrackPathMap({ path }: TrackPathMapProps) {
         initialViewState={initialViewState}
         controller={{ inertia: 250 }}
         layers={layers}
+        getTooltip={tooltipFor}
       />
-      <Legend hz={path.sample_hz} />
+      <Legend hz={path.sample_hz} markerCount={markers.length} />
       <Hint />
     </div>
   );
 }
 
-// ---------- helpers ----------
+// ---------- scene assembly ----------
 
 // Column indices match the server's fixed pathColumns order.
+const COL_TICK_NS = 0;
 const COL_POS_X = 1;
 const COL_POS_Y = 2;
 const COL_POS_Z = 3;
 const COL_SPEED = 4;
+const COL_LAP = 5;
 
-function buildSegments(path: PathResponse): { segments: Segment[]; extent: number } {
-  // Materialise valid (pos_x, pos_y, pos_z, speed) tuples in one pass.
-  const pts: { x: number; y: number; z: number; speed: number }[] = [];
+interface PathPoint {
+  tickNS: number;
+  x: number;
+  y: number;
+  z: number;
+  speed: number;
+  lap: number | null;
+}
+
+function buildScene(
+  path: PathResponse,
+  hotSpots: HotSpot[],
+): { segments: Segment[]; markers: HotSpotMarker[]; extent: number } {
+  const pts: PathPoint[] = [];
   for (const row of path.rows) {
+    const tick = row[COL_TICK_NS];
     const x = row[COL_POS_X];
     const y = row[COL_POS_Y];
     const z = row[COL_POS_Z];
-    if (x === null || y === null || z === null) continue;
-    pts.push({ x, y, z, speed: row[COL_SPEED] ?? 0 });
+    if (tick === null || x === null || y === null || z === null) continue;
+    pts.push({
+      tickNS: tick,
+      x,
+      y,
+      z,
+      speed: row[COL_SPEED] ?? 0,
+      lap: row[COL_LAP],
+    });
   }
   if (pts.length < 2) {
-    return { segments: [], extent: 1 };
+    return { segments: [], markers: [], extent: 1 };
   }
 
+  // One pass for bounds.
   let minX = Infinity,
     maxX = -Infinity,
     minY = Infinity,
@@ -122,6 +169,8 @@ function buildSegments(path: PathResponse): { segments: Segment[]; extent: numbe
   const cz = (minZ + maxZ) / 2;
   const extent = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
 
+  // Segments between consecutive samples — colour the segment by the speed
+  // at its end (matches "what speed did we reach by this point").
   const segments: Segment[] = new Array(pts.length - 1);
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
@@ -130,16 +179,52 @@ function buildSegments(path: PathResponse): { segments: Segment[]; extent: numbe
       source: [a.x - cx, a.y - cy, a.z - cz],
       target: [b.x - cx, b.y - cy, b.z - cz],
       speed: b.speed,
+      lap: b.lap,
+      tickNS: b.tickNS,
     };
   }
-  return { segments, extent };
+
+  // Hot-spot 3D positions = the path point nearest to peak_tick_ns. Path
+  // rows are already ORDER BY server_recv_ns, so binary search is safe.
+  const markers: HotSpotMarker[] = [];
+  for (const h of hotSpots) {
+    const p = nearestPoint(pts, h.peak_tick_ns);
+    if (!p) continue;
+    markers.push({
+      id: h.id,
+      pos: [p.x - cx, p.y - cy, p.z - cz],
+      type: h.type,
+      label: h.label,
+      value: h.peak_value,
+    });
+  }
+
+  return { segments, markers, extent };
 }
+
+function nearestPoint(pts: PathPoint[], tickNS: number): PathPoint | null {
+  if (pts.length === 0) return null;
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (pts[mid].tickNS < tickNS) lo = mid + 1;
+    else hi = mid;
+  }
+  // lo now indexes the first >= tickNS; compare with previous to pick the
+  // closer of the two candidates.
+  const cand = pts[lo];
+  if (lo === 0) return cand;
+  const prev = pts[lo - 1];
+  return Math.abs(cand.tickNS - tickNS) < Math.abs(prev.tickNS - tickNS) ? cand : prev;
+}
+
+// ---------- visuals ----------
 
 /**
  * Speed → colour ramp. m/s into a cool-to-hot mapping:
  *   0 m/s   → blue (cool)
  *   90 m/s+ → red/orange (hot, ≈ 324 km/h ceiling for Forza top speeds)
- * Returned as [r,g,b,a] for deck.gl.
  */
 function speedToColor(speedMS: number): [number, number, number, number] {
   const t = Math.min(Math.max(speedMS / 90, 0), 1);
@@ -166,20 +251,80 @@ function speedToColor(speedMS: number): [number, number, number, number] {
   return [240, 80, 60, 255];
 }
 
-function Legend({ hz }: { hz: number }) {
+function hotSpotColor(type: string): [number, number, number, number] {
+  switch (type) {
+    case "peak_lateral_g": {
+      return [255, 200, 60, 230]; // amber — cornering
+    }
+    case "peak_brake": {
+      return [240, 80, 80, 230]; // red — braking
+    }
+    case "top_speed": {
+      return [80, 180, 255, 230]; // blue — speed
+    }
+    default: {
+      return [200, 200, 200, 230];
+    }
+  }
+}
+
+function hotSpotTypeLabel(t: string): string {
+  switch (t) {
+    case "peak_lateral_g": {
+      return "Lateral G peak";
+    }
+    case "peak_brake": {
+      return "Brake peak";
+    }
+    case "top_speed": {
+      return "Top speed";
+    }
+    default: {
+      return t;
+    }
+  }
+}
+
+// ---------- tooltip ----------
+
+function tooltipFor(info: PickingInfo): string | null {
+  if (!info.object) return null;
+  if (info.layer?.id === "track-path") {
+    const seg = info.object as Segment;
+    const kmh = (seg.speed * 3.6).toFixed(0);
+    const lap = seg.lap !== null ? `Lap ${seg.lap}` : "—";
+    return `${kmh} km/h · ${lap}`;
+  }
+  if (info.layer?.id === "hot-spots") {
+    const m = info.object as HotSpotMarker;
+    return `${m.label}\n${hotSpotTypeLabel(m.type)}`;
+  }
+  return null;
+}
+
+// ---------- chrome ----------
+
+function Legend({ hz, markerCount }: { hz: number; markerCount: number }) {
   return (
-    <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-2 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
-      <span>slow</span>
-      <span
-        aria-hidden
-        className="h-2 w-24 rounded-full"
-        style={{
-          background:
-            "linear-gradient(to right, rgb(40,90,200), rgb(80,200,220), rgb(120,220,100), rgb(240,200,60), rgb(240,80,60))",
-        }}
-      />
-      <span>fast</span>
-      <span className="ml-1 tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
+    <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-3 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
+      <div className="flex items-center gap-2">
+        <span>slow</span>
+        <span
+          aria-hidden
+          className="h-2 w-24 rounded-full"
+          style={{
+            background:
+              "linear-gradient(to right, rgb(40,90,200), rgb(80,200,220), rgb(120,220,100), rgb(240,200,60), rgb(240,80,60))",
+          }}
+        />
+        <span>fast</span>
+        <span className="tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
+      </div>
+      {markerCount > 0 && (
+        <span className="border-l border-foreground/10 pl-3 tabular-nums">
+          {markerCount} hot-spot{markerCount === 1 ? "" : "s"}
+        </span>
+      )}
     </div>
   );
 }
@@ -187,7 +332,7 @@ function Legend({ hz }: { hz: number }) {
 function Hint() {
   return (
     <div className="pointer-events-none absolute top-3 left-3 rounded-xl bg-surface-secondary/80 px-3 py-1.5 text-xs text-muted backdrop-blur">
-      drag to orbit · scroll to zoom
+      drag to orbit · scroll to zoom · hover for detail
     </div>
   );
 }
