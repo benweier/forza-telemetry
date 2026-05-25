@@ -1,0 +1,260 @@
+// Command gen-types emits TypeScript definitions for the wire format produced
+// by the live WebSocket: the Tick struct (renamed to TickFrame on the TS side)
+// plus the GameVersion and PacketVariant enums.
+//
+// Field names on the TS side come from the `msgpack:"..."` struct tags, not
+// the Go identifiers — that matches what the client actually sees on the wire.
+// Run via `just gen-types` (writes to web/src/types/tick.generated.ts).
+package main
+
+import (
+	"flag"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io"
+	"os"
+	"reflect"
+	"strings"
+)
+
+func main() {
+	in := flag.String("in", "internal/tick/tick.go", "path to tick.go")
+	flag.Parse()
+	if err := generate(*in, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "gen-types:", err)
+		os.Exit(1)
+	}
+}
+
+func generate(path string, w io.Writer) error {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	var (
+		gameVersionValues   []enumValue
+		packetVariantValues []enumValue
+		tickFields          []tickField
+	)
+
+	for _, decl := range file.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		switch gd.Tok {
+		case token.CONST:
+			vs := collectEnum(gd, "GameVersion")
+			if len(vs) > 0 {
+				gameVersionValues = vs
+			}
+			vs = collectEnum(gd, "PacketVariant")
+			if len(vs) > 0 {
+				packetVariantValues = vs
+			}
+		case token.TYPE:
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name.Name != "Tick" {
+					continue
+				}
+				st, ok := ts.Type.(*ast.StructType)
+				if !ok {
+					continue
+				}
+				tickFields = collectTickFields(st)
+			}
+		}
+	}
+
+	if len(gameVersionValues) == 0 || len(packetVariantValues) == 0 {
+		return fmt.Errorf("missing GameVersion or PacketVariant enum")
+	}
+	if len(tickFields) == 0 {
+		return fmt.Errorf("no Tick fields with msgpack tags found")
+	}
+
+	return emit(w, gameVersionValues, packetVariantValues, tickFields)
+}
+
+type enumValue struct {
+	GoName string
+	TSName string
+	Value  int
+}
+
+// collectEnum returns the values declared in a const block typed as the given
+// Go type. Tracks iota progression across ValueSpecs.
+func collectEnum(gd *ast.GenDecl, typeName string) []enumValue {
+	var out []enumValue
+	idx := -1
+	matched := false
+	for _, spec := range gd.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		idx++
+		if vs.Type != nil {
+			ident, ok := vs.Type.(*ast.Ident)
+			matched = ok && ident.Name == typeName
+		}
+		if !matched {
+			continue
+		}
+		for _, n := range vs.Names {
+			out = append(out, enumValue{
+				GoName: n.Name,
+				TSName: stripTypePrefix(n.Name, typeName),
+				Value:  idx,
+			})
+		}
+	}
+	return out
+}
+
+// stripTypePrefix turns e.g. (GameFH5, GameVersion) into FH5.
+func stripTypePrefix(name, typeName string) string {
+	// GameVersion -> Game, PacketVariant -> Variant (matches the const naming).
+	prefix := typeName
+	switch typeName {
+	case "GameVersion":
+		prefix = "Game"
+	case "PacketVariant":
+		prefix = "Variant"
+	}
+	return strings.TrimPrefix(name, prefix)
+}
+
+type tickField struct {
+	GoName   string
+	WireName string
+	TSType   string
+	Section  string
+}
+
+func collectTickFields(st *ast.StructType) []tickField {
+	var out []tickField
+	section := ""
+	for _, field := range st.Fields.List {
+		if h := sectionFromDoc(field.Doc); h != "" {
+			section = h
+		}
+		if field.Tag == nil {
+			continue
+		}
+		raw := strings.Trim(field.Tag.Value, "`")
+		wire := reflect.StructTag(raw).Get("msgpack")
+		if wire == "" || wire == "-" {
+			continue
+		}
+		tsType := goTypeToTS(field.Type)
+		if tsType == "" {
+			continue
+		}
+		for _, n := range field.Names {
+			out = append(out, tickField{
+				GoName:   n.Name,
+				WireName: wire,
+				TSType:   tsType,
+				Section:  section,
+			})
+			section = ""
+		}
+	}
+	return out
+}
+
+// sectionFromDoc extracts a section heading from a comment group shaped like
+// `// --- Race state ---`. Returns "" if no such heading is present.
+func sectionFromDoc(g *ast.CommentGroup) string {
+	if g == nil {
+		return ""
+	}
+	for _, c := range g.List {
+		text := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
+		if strings.HasPrefix(text, "---") && strings.HasSuffix(text, "---") {
+			return strings.TrimSpace(strings.Trim(text, "-"))
+		}
+	}
+	return ""
+}
+
+func goTypeToTS(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		switch t.Name {
+		case "bool":
+			return "boolean"
+		case "uint8", "uint16", "uint32", "uint64",
+			"int8", "int16", "int32", "int64",
+			"float32", "float64", "int", "uint":
+			return "number"
+		case "GameVersion", "PacketVariant":
+			return t.Name
+		}
+	case *ast.ArrayType:
+		if lit, ok := t.Len.(*ast.BasicLit); ok && lit.Value == "4" {
+			elem := goTypeToTS(t.Elt)
+			if elem != "" {
+				return "Quad"
+			}
+		}
+	}
+	return ""
+}
+
+func emit(w io.Writer, gv, pv []enumValue, fields []tickField) error {
+	var b strings.Builder
+	b.WriteString("// Code generated by cmd/gen-types. DO NOT EDIT.\n")
+	b.WriteString("//\n")
+	b.WriteString("// Source: server/internal/tick/tick.go\n")
+	b.WriteString("// Regenerate with `just gen-types`.\n\n")
+
+	writeEnum(&b, "GameVersion", gv)
+	writeEnum(&b, "PacketVariant", pv)
+
+	b.WriteString("export type Quad = readonly [number, number, number, number];\n\n")
+
+	b.WriteString("export interface TickFrame {\n")
+	for i, f := range fields {
+		if f.Section != "" {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "  // %s\n", f.Section)
+		}
+		fmt.Fprintf(&b, "  %s: %s;\n", quoteKey(f.WireName), f.TSType)
+	}
+	b.WriteString("}\n")
+
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+func writeEnum(b *strings.Builder, name string, values []enumValue) {
+	fmt.Fprintf(b, "export const %s = {\n", name)
+	for _, v := range values {
+		fmt.Fprintf(b, "  %s: %d,\n", v.TSName, v.Value)
+	}
+	b.WriteString("} as const;\n\n")
+	fmt.Fprintf(b, "export type %s = (typeof %s)[keyof typeof %s];\n\n", name, name, name)
+}
+
+// quoteKey wraps a key in quotes if it isn't a plain TS identifier.
+func quoteKey(k string) string {
+	for i, r := range k {
+		ok := r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if i > 0 {
+			ok = ok || (r >= '0' && r <= '9')
+		}
+		if !ok {
+			return `"` + k + `"`
+		}
+	}
+	return k
+}
