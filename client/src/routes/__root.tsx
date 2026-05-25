@@ -3,13 +3,13 @@ import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import {
   HeadContent,
-  Link,
   Outlet,
   Scripts,
   createRootRouteWithContext,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type * as React from "react";
+import { AppShell } from "~/components/AppSidebar";
 import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary";
 import { NotFound } from "~/components/NotFound";
 import appCss from "~/styles/app.css?url";
@@ -35,6 +35,16 @@ export const Route = createRootRouteWithContext<{
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      {
+        rel: "preconnect",
+        href: "https://fonts.gstatic.com",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Figtree:wght@300..900&family=Inter:wght@100..900&display=swap",
+      },
       { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
       { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" },
       { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png" },
@@ -42,35 +52,32 @@ export const Route = createRootRouteWithContext<{
       { rel: "icon", href: "/favicon.ico" },
     ],
   }),
-  notFoundComponent: () => <NotFound />,
+  notFoundComponent: () => (
+    <RootDocument>
+      <AppShell>
+        <NotFound />
+      </AppShell>
+    </RootDocument>
+  ),
 });
 
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <AppShell>
+        <Outlet />
+      </AppShell>
     </RootDocument>
   );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html>
+    <html lang="en" data-theme="glass-dark" className="glass-dark">
       <head>
         <HeadContent />
       </head>
-      <body>
-        <nav className="flex gap-3 p-2 text-lg border-b">
-          <Link to="/" activeProps={{ className: "font-bold" }} activeOptions={{ exact: true }}>
-            Home
-          </Link>
-          <Link to="/live" activeProps={{ className: "font-bold" }}>
-            Live
-          </Link>
-          <Link to="/sessions" activeProps={{ className: "font-bold" }}>
-            Sessions
-          </Link>
-        </nav>
+      <body className="font-sans antialiased text-foreground bg-background">
         {children}
         <TanStackRouterDevtools position="bottom-right" />
         <ReactQueryDevtools buttonPosition="bottom-left" />
