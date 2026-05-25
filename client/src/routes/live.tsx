@@ -29,7 +29,7 @@ function LiveRoute() {
       <div className="rounded-2xl bg-surface p-12 shadow-surface">
         <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
           <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent-soft-foreground">
-            <Icon icon="gravity-ui:antenna" className="size-6" />
+            <Icon icon="lucide:radio-tower" className="size-6" />
           </span>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
             Waiting for telemetry

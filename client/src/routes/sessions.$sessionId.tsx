@@ -37,7 +37,7 @@ function SessionDetailRoute() {
         <EmptyState>
           <EmptyState.Header>
             <EmptyState.Media variant="icon">
-              <Icon icon="gravity-ui:circles-intersection" />
+              <Icon icon="lucide:list-tree" />
             </EmptyState.Media>
             <EmptyState.Title>Stint list pending</EmptyState.Title>
             <EmptyState.Description>

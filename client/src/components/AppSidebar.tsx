@@ -8,9 +8,9 @@ import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import type * as React from "react";
 
 const NAV = [
-  { to: "/", label: "Home", icon: "gravity-ui:house" },
-  { to: "/live", label: "Live", icon: "gravity-ui:square-activity" },
-  { to: "/sessions", label: "Sessions", icon: "gravity-ui:layers-3" },
+  { to: "/", label: "Home", icon: "lucide:house" },
+  { to: "/live", label: "Live", icon: "lucide:square-activity" },
+  { to: "/sessions", label: "Sessions", icon: "lucide:layers-3" },
 ] as const;
 
 interface AppShellProps {
@@ -38,7 +38,7 @@ export function AppShell({ children }: AppShellProps) {
               aria-hidden
               className="grid size-7 place-items-center rounded-md bg-accent text-accent-foreground"
             >
-              <Icon icon="gravity-ui:car-arrow-right" className="size-4" />
+              <Icon icon="lucide:gauge" className="size-4" />
             </span>
             <span className="text-sm font-semibold tracking-tight">Forza Telemetry</span>
           </Link>

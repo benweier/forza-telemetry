@@ -29,7 +29,7 @@ function SessionsIndexRoute() {
         <EmptyState size="lg">
           <EmptyState.Header>
             <EmptyState.Media variant="icon">
-              <Icon icon="gravity-ui:layers-3" />
+              <Icon icon="lucide:layers-3" />
             </EmptyState.Media>
             <EmptyState.Title>No sessions yet</EmptyState.Title>
             <EmptyState.Description>
@@ -39,7 +39,7 @@ function SessionsIndexRoute() {
           </EmptyState.Header>
           <EmptyState.Content>
             <Button variant="outline" size="sm" onPress={() => {}}>
-              <Icon icon="gravity-ui:circle-question" className="mr-1.5 size-4" />
+              <Icon icon="lucide:circle-help" className="mr-1.5 size-4" />
               Setup guide
             </Button>
           </EmptyState.Content>

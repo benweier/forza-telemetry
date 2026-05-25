@@ -41,7 +41,7 @@ function StintDetailRoute() {
           <EmptyState>
             <EmptyState.Header>
               <EmptyState.Media variant="icon">
-                <Icon icon="gravity-ui:chart-line" />
+                <Icon icon="lucide:line-chart" />
               </EmptyState.Media>
               <EmptyState.Title>Charts pending</EmptyState.Title>
               <EmptyState.Description>

@@ -29,7 +29,7 @@ function HomeRoute() {
           className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 no-underline text-foreground shadow-surface transition-colors hover:bg-surface-hover"
         >
           <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-soft-foreground">
-            <Icon icon="gravity-ui:square-activity" className="size-5" />
+            <Icon icon="lucide:square-activity" className="size-5" />
           </span>
           <span className="text-lg font-semibold tracking-tight">Live HUD</span>
           <span className="text-sm text-muted">
@@ -42,7 +42,7 @@ function HomeRoute() {
           className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 no-underline text-foreground shadow-surface transition-colors hover:bg-surface-hover"
         >
           <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-soft-foreground">
-            <Icon icon="gravity-ui:layers-3" className="size-5" />
+            <Icon icon="lucide:layers-3" className="size-5" />
           </span>
           <span className="text-lg font-semibold tracking-tight">Sessions</span>
           <span className="text-sm text-muted">
