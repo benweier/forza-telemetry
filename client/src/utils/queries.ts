@@ -11,6 +11,7 @@ import {
   CornersResponseSchema,
   HotSpotsResponseSchema,
   LapsResponseSchema,
+  PathResponseSchema,
   PreviewResponseSchema,
   SessionDetailSchema,
   SessionsListResponseSchema,
@@ -61,4 +62,16 @@ export const previewQuery = (id: string) =>
   queryOptions({
     queryKey: ["stints", id, "preview"] as const,
     queryFn: () => fetchAndParse(`/stints/${id}/preview`, PreviewResponseSchema),
+  });
+
+// Downsampled 3D path for the track-path minimap. `step` defaults to 6 on the
+// server (~10Hz from 60Hz parquet) — enough density for smooth curves without
+// the per-stint payload weight of full-rate ticks.
+export const pathQuery = (id: string, step?: number) =>
+  queryOptions({
+    queryKey: ["stints", id, "path", step ?? "default"] as const,
+    queryFn: () => {
+      const qs = step !== undefined ? `?step=${step}` : "";
+      return fetchAndParse(`/stints/${id}/path${qs}`, PathResponseSchema);
+    },
   });

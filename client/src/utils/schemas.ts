@@ -131,6 +131,16 @@ export const PreviewSampleSchema = v.object({
 });
 export const PreviewResponseSchema = v.object({ samples: v.array(PreviewSampleSchema) });
 
+// /stints/{id}/path — column-oriented downsampled XYZ + speed for 3D rendering.
+// Columns are fixed server-side: [server_recv_ns, pos_x, pos_y, pos_z, speed_ms].
+// `step` is the parquet row stride; `sample_hz` is 60 / step.
+export const PathResponseSchema = v.object({
+  columns: v.array(v.string()),
+  rows: v.array(v.array(v.nullable(v.number()))),
+  step: v.number(),
+  sample_hz: v.number(),
+});
+
 // --- Inferred types ---
 
 export type Session = v.InferOutput<typeof SessionSchema>;
@@ -144,3 +154,4 @@ export type Lap = v.InferOutput<typeof LapSchema>;
 export type HotSpot = v.InferOutput<typeof HotSpotSchema>;
 export type Corner = v.InferOutput<typeof CornerSchema>;
 export type PreviewSample = v.InferOutput<typeof PreviewSampleSchema>;
+export type PathResponse = v.InferOutput<typeof PathResponseSchema>;
