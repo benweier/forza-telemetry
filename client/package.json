@@ -37,6 +37,7 @@
     "tailwind-merge": "^3.6.0",
     "tailwind-variants": "^3.2.2",
     "up-fetch": "^2.6.0",
+    "uplot": "^1.6.32",
     "valibot": "^1.4.0",
     "zustand": "^5.0.13"
   },
