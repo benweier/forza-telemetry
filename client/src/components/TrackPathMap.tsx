@@ -1,17 +1,16 @@
 /* Hallmark · component: track-path-map · genre: dashboard · theme: Glass
- * 3D track-path minimap. Reads 1Hz preview_samples (pos_x, pos_y, pos_z, speed_ms)
- * and renders a speed-coloured polyline under an OrbitView. Per-segment colour
- * via LineLayer (one segment per consecutive sample pair) — gives an honest
- * gradient at 1Hz without needing TripsLayer / custom shaders.
+ * 3D track-path minimap. Reads /stints/{id}/path (column-oriented, ~10Hz by
+ * default) and renders a speed-coloured polyline under an OrbitView. Per-
+ * segment colour via LineLayer (one segment per consecutive sample pair).
  */
 import { COORDINATE_SYSTEM, OrbitView } from "@deck.gl/core";
 import { LineLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
-import type { PreviewSample } from "~/utils/schemas";
+import type { PathResponse } from "~/utils/schemas";
 
 interface TrackPathMapProps {
-  samples: PreviewSample[];
+  path: PathResponse;
 }
 
 interface Segment {
@@ -28,8 +27,8 @@ interface Segment {
  * Camera target is the path centroid so the track sits at the origin regardless
  * of where the world coords land (Forza world coords drift into the thousands).
  */
-export function TrackPathMap({ samples }: TrackPathMapProps) {
-  const { segments, target, extent } = useMemo(() => buildSegments(samples), [samples]);
+export function TrackPathMap({ path }: TrackPathMapProps) {
+  const { segments, extent } = useMemo(() => buildSegments(path), [path]);
 
   if (segments.length < 1) {
     return (
@@ -43,8 +42,6 @@ export function TrackPathMap({ samples }: TrackPathMapProps) {
     );
   }
 
-  // OrbitView zoom is log2 scale: zoom = -log2(extent / viewport size). For a
-  // ~600px-wide canvas, picking zoom so the bounding cube spans ~80% of the view.
   const zoom = Math.log2(480 / Math.max(extent, 1));
 
   const layers = [
@@ -62,7 +59,7 @@ export function TrackPathMap({ samples }: TrackPathMapProps) {
   ];
 
   const initialViewState = {
-    target,
+    target: [0, 0, 0] as [number, number, number],
     zoom,
     rotationX: 35,
     rotationOrbit: -30,
@@ -78,7 +75,7 @@ export function TrackPathMap({ samples }: TrackPathMapProps) {
         controller={{ inertia: 250 }}
         layers={layers}
       />
-      <Legend />
+      <Legend hz={path.sample_hz} />
       <Hint />
     </div>
   );
@@ -86,17 +83,24 @@ export function TrackPathMap({ samples }: TrackPathMapProps) {
 
 // ---------- helpers ----------
 
-function buildSegments(samples: PreviewSample[]): {
-  segments: Segment[];
-  target: [number, number, number];
-  extent: number;
-} {
-  const valid = samples.filter(
-    (s): s is PreviewSample & { pos_x: number; pos_y: number; pos_z: number } =>
-      s.pos_x !== null && s.pos_y !== null && s.pos_z !== null,
-  );
-  if (valid.length < 2) {
-    return { segments: [], target: [0, 0, 0], extent: 1 };
+// Column indices match the server's fixed pathColumns order.
+const COL_POS_X = 1;
+const COL_POS_Y = 2;
+const COL_POS_Z = 3;
+const COL_SPEED = 4;
+
+function buildSegments(path: PathResponse): { segments: Segment[]; extent: number } {
+  // Materialise valid (pos_x, pos_y, pos_z, speed) tuples in one pass.
+  const pts: { x: number; y: number; z: number; speed: number }[] = [];
+  for (const row of path.rows) {
+    const x = row[COL_POS_X];
+    const y = row[COL_POS_Y];
+    const z = row[COL_POS_Z];
+    if (x === null || y === null || z === null) continue;
+    pts.push({ x, y, z, speed: row[COL_SPEED] ?? 0 });
+  }
+  if (pts.length < 2) {
+    return { segments: [], extent: 1 };
   }
 
   let minX = Infinity,
@@ -105,32 +109,30 @@ function buildSegments(samples: PreviewSample[]): {
     maxY = -Infinity,
     minZ = Infinity,
     maxZ = -Infinity;
-  for (const s of valid) {
-    if (s.pos_x < minX) minX = s.pos_x;
-    if (s.pos_x > maxX) maxX = s.pos_x;
-    if (s.pos_y < minY) minY = s.pos_y;
-    if (s.pos_y > maxY) maxY = s.pos_y;
-    if (s.pos_z < minZ) minZ = s.pos_z;
-    if (s.pos_z > maxZ) maxZ = s.pos_z;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+    if (p.z < minZ) minZ = p.z;
+    if (p.z > maxZ) maxZ = p.z;
   }
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   const cz = (minZ + maxZ) / 2;
   const extent = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
 
-  // Re-centre by subtracting centroid. Keeps OrbitView numerics happy and the
-  // initial camera target at the origin.
-  const segments: Segment[] = [];
-  for (let i = 1; i < valid.length; i++) {
-    const a = valid[i - 1];
-    const b = valid[i];
-    segments.push({
-      source: [a.pos_x - cx, a.pos_y - cy, a.pos_z - cz],
-      target: [b.pos_x - cx, b.pos_y - cy, b.pos_z - cz],
-      speed: b.speed_ms ?? a.speed_ms ?? 0,
-    });
+  const segments: Segment[] = new Array(pts.length - 1);
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    segments[i - 1] = {
+      source: [a.x - cx, a.y - cy, a.z - cz],
+      target: [b.x - cx, b.y - cy, b.z - cz],
+      speed: b.speed,
+    };
   }
-  return { segments, target: [0, 0, 0], extent };
+  return { segments, extent };
 }
 
 /**
@@ -141,7 +143,6 @@ function buildSegments(samples: PreviewSample[]): {
  */
 function speedToColor(speedMS: number): [number, number, number, number] {
   const t = Math.min(Math.max(speedMS / 90, 0), 1);
-  // 5-stop gradient: deep blue → cyan → green → yellow → red
   const stops: Array<[number, [number, number, number]]> = [
     [0.0, [40, 90, 200]],
     [0.25, [80, 200, 220]],
@@ -165,7 +166,7 @@ function speedToColor(speedMS: number): [number, number, number, number] {
   return [240, 80, 60, 255];
 }
 
-function Legend() {
+function Legend({ hz }: { hz: number }) {
   return (
     <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-2 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
       <span>slow</span>
@@ -178,6 +179,7 @@ function Legend() {
         }}
       />
       <span>fast</span>
+      <span className="ml-1 tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
     </div>
   );
 }

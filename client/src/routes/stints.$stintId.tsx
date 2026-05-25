@@ -7,7 +7,14 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { TickPreviewChart } from "~/components/TickPreviewChart";
 import { TrackPathMap } from "~/components/TrackPathMap";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
-import { cornersQuery, hotSpotsQuery, lapsQuery, previewQuery, stintQuery } from "~/utils/queries";
+import {
+  cornersQuery,
+  hotSpotsQuery,
+  lapsQuery,
+  pathQuery,
+  previewQuery,
+  stintQuery,
+} from "~/utils/queries";
 import type { Corner, HotSpot, Lap, StintDetail, StintSummary } from "~/utils/schemas";
 
 export const Route = createFileRoute("/stints/$stintId")({
@@ -19,6 +26,7 @@ export const Route = createFileRoute("/stints/$stintId")({
     return Promise.all([
       context.queryClient.prefetchQuery(stintQuery(id)),
       context.queryClient.prefetchQuery(previewQuery(id)),
+      context.queryClient.prefetchQuery(pathQuery(id)),
       context.queryClient.prefetchQuery(hotSpotsQuery(id)),
       context.queryClient.prefetchQuery(cornersQuery(id)),
       context.queryClient.prefetchQuery(lapsQuery(id)),
@@ -30,6 +38,7 @@ function StintDetailRoute() {
   const { stintId } = Route.useParams();
   const stint = useQuery(stintQuery(stintId));
   const preview = useQuery(previewQuery(stintId));
+  const path = useQuery(pathQuery(stintId));
   const hotSpots = useQuery(hotSpotsQuery(stintId));
   const corners = useQuery(cornersQuery(stintId));
   const laps = useQuery(lapsQuery(stintId));
@@ -47,8 +56,8 @@ function StintDetailRoute() {
       <div className="grid gap-4 lg:grid-cols-[1fr_minmax(0,20rem)]">
         <div className="flex flex-col gap-4">
           <SectionHeading>Track path</SectionHeading>
-          {preview.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
-          {preview.data && <TrackPathMap samples={preview.data.samples} />}
+          {path.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
+          {path.data && <TrackPathMap path={path.data} />}
 
           <SectionHeading>Preview</SectionHeading>
           {preview.isLoading && <Skeleton className="h-80 w-full rounded-2xl" />}
