@@ -6,25 +6,57 @@ import (
 	"strings"
 )
 
-// aggregateStint computes the per-stint, per-lap, and 1Hz preview rows for a
-// freshly-closed stint and inserts them. Reads back from the Parquet file
-// just written by the Writer — DuckDB's read_parquet() is fast enough that a
-// round-trip to disk is cheaper than maintaining a parallel streaming
-// aggregator in Go.
+// stintAggregateInput bundles everything a freshly-closed stint hands the
+// aggregator. parquetPath drives the SQL passes (stint_summary, lap_summary,
+// preview_samples). pathSamples drive the in-memory Turn + Straight passes.
+type stintAggregateInput struct {
+	stintID      string
+	parquetPath  string
+	stintStartNS int64
+	stintEndNS   int64
+	pathSamples  []pathSample // empty for non-race stints — Turn/Straight passes skipped
+}
+
+// aggregateStint computes per-stint, per-lap, and 1Hz preview rows, plus
+// Turn and Straight rows for race-category stints. Reads back from the
+// Parquet file just written by the Writer — DuckDB's read_parquet() is fast
+// enough that a round-trip to disk is cheaper than maintaining a parallel
+// streaming aggregator in Go.
 //
 // Called from Writer.closeStint after the stints row has been updated.
 // Per-lap rows are emitted for every distinct lap_number present, including
 // lap 0 (pre-race / out-lap segments captured before the first lap increment).
-func aggregateStint(db *sql.DB, stintID, parquetPath string) error {
-	pq := escapeSQLLiteral(parquetPath)
-	if err := insertStintSummary(db, stintID, pq); err != nil {
+//
+// Turn + Straight insertion happens *before* hot_spots insertion (handled
+// by the Writer) so the XOR CHECK on hot_spots can resolve to a valid
+// segment at INSERT time.
+func aggregateStint(db *sql.DB, in stintAggregateInput) error {
+	pq := escapeSQLLiteral(in.parquetPath)
+	if err := insertStintSummary(db, in.stintID, pq); err != nil {
 		return fmt.Errorf("stint_summary: %w", err)
 	}
-	if err := insertLapSummaries(db, stintID, pq); err != nil {
+	if err := insertLapSummaries(db, in.stintID, pq); err != nil {
 		return fmt.Errorf("lap_summary: %w", err)
 	}
-	if err := insertPreviewSamples(db, stintID, pq); err != nil {
+	if err := insertPreviewSamples(db, in.stintID, pq); err != nil {
 		return fmt.Errorf("preview_samples: %w", err)
+	}
+	// Turn detection runs only when path samples were collected (Circuit +
+	// Sprint stints per ADR 0008). Straight derivation always runs so every
+	// stint has at least one Straight covering its full tick range — this
+	// keeps the K+1 invariant true everywhere and gives hot-spots a segment
+	// to attribute to even in Freeroam / Idle stints where no Turns are
+	// detected.
+	var turns []turnCandidate
+	if len(in.pathSamples) > 0 {
+		turns = detectTurns(in.pathSamples)
+		if err := insertTurns(db, in.stintID, turns); err != nil {
+			return fmt.Errorf("turns: %w", err)
+		}
+	}
+	straights := deriveStraights(turns, in.pathSamples, in.stintStartNS, in.stintEndNS)
+	if err := insertStraights(db, in.stintID, straights); err != nil {
+		return fmt.Errorf("straights: %w", err)
 	}
 	return nil
 }
@@ -112,6 +144,50 @@ ORDER BY server_recv_ns
 `, escapedPath)
 	_, err := db.Exec(q, stintID)
 	return err
+}
+
+func insertTurns(db *sql.DB, stintID string, turns []turnCandidate) error {
+	for i, t := range turns {
+		idx := i + 1
+		id := fmt.Sprintf("%s_turn_%d", stintID, idx)
+		if _, err := db.Exec(
+			`INSERT INTO turns
+			 (id, stint_id, turn_index, started_at_ns, apex_tick_ns, ended_at_ns,
+			  peak_curvature, peak_delta_theta, direction, shape)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			id, stintID, idx,
+			t.StartTickNS, t.ApexTickNS, t.EndTickNS,
+			t.PeakCurvature, t.PeakDeltaTheta, t.Direction,
+		); err != nil {
+			return fmt.Errorf("turn %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
+func insertStraights(db *sql.DB, stintID string, straights []straightCandidate) error {
+	for i, s := range straights {
+		idx := i + 1
+		id := fmt.Sprintf("%s_straight_%d", stintID, idx)
+		// peak_speed_ms is nullable when no samples fall in the range —
+		// only zero-length straights produce that.
+		var peakSpeed any
+		if s.PeakSpeedMS > 0 {
+			peakSpeed = s.PeakSpeedMS
+		}
+		if _, err := db.Exec(
+			`INSERT INTO straights
+			 (id, stint_id, straight_index, started_at_ns, ended_at_ns,
+			  distance_m, peak_speed_ms)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			id, stintID, idx,
+			s.StartTickNS, s.EndTickNS,
+			s.DistanceM, peakSpeed,
+		); err != nil {
+			return fmt.Errorf("straight %d: %w", idx, err)
+		}
+	}
+	return nil
 }
 
 // escapeSQLLiteral escapes single quotes for safe embedding in a SQL string

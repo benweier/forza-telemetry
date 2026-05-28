@@ -302,7 +302,7 @@ func TestWriterEmitsHotSpots(t *testing.T) {
 	}
 }
 
-func TestWriterEmitsCornersForCircuitStint(t *testing.T) {
+func TestWriterEmitsTurnsForRaceStint(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close(context.Background())
 
@@ -392,9 +392,9 @@ func TestWriterEmitsCornersForCircuitStint(t *testing.T) {
 	}
 
 	rows, err := store.db.Query(
-		`SELECT lap_number, corner_index, direction, peak_lateral_g
-		 FROM corners WHERE stint_id LIKE ?
-		 ORDER BY lap_number, corner_index`,
+		`SELECT turn_index, direction, peak_delta_theta
+		 FROM turns WHERE stint_id LIKE ?
+		 ORDER BY turn_index`,
 		writer.sessionID+"%",
 	)
 	if err != nil {
@@ -402,32 +402,47 @@ func TestWriterEmitsCornersForCircuitStint(t *testing.T) {
 	}
 	defer rows.Close()
 	type seen struct {
-		lap   int
-		idx   int
-		dir   string
-		latG  float64
+		idx        int
+		dir        string
+		deltaTheta float64
 	}
 	var got []seen
 	for rows.Next() {
 		var s seen
-		if err := rows.Scan(&s.lap, &s.idx, &s.dir, &s.latG); err != nil {
+		if err := rows.Scan(&s.idx, &s.dir, &s.deltaTheta); err != nil {
 			t.Fatal(err)
 		}
 		got = append(got, s)
 	}
 
+	// Two distinct turns along the stint: turn 1 (right), turn 2 (left).
+	// Per ADR 0008 numbering is chronological along the Stint (not per-Lap).
 	if len(got) != 2 {
-		t.Fatalf("want 2 corners (one per lap), got %d: %+v", len(got), got)
+		t.Fatalf("want 2 turns (one per direction-change), got %d: %+v", len(got), got)
 	}
-	if got[0].lap != 0 || got[0].idx != 1 {
-		t.Errorf("corner 0: want lap 0 idx 1, got lap %d idx %d", got[0].lap, got[0].idx)
-	}
-	if got[1].lap != 1 || got[1].idx != 1 {
-		t.Errorf("corner 1: want lap 1 idx 1, got lap %d idx %d", got[1].lap, got[1].idx)
+	if got[0].idx != 1 || got[1].idx != 2 {
+		t.Errorf("turn indices: want 1,2 got %d,%d", got[0].idx, got[1].idx)
 	}
 	if got[0].dir == got[1].dir {
-		t.Errorf("right then left corners must have opposite direction, got %s + %s",
+		t.Errorf("right then left turns must have opposite direction, got %s + %s",
 			got[0].dir, got[1].dir)
+	}
+	// Δθ should have opposite signs.
+	if got[0].deltaTheta*got[1].deltaTheta >= 0 {
+		t.Errorf("turn Δθ must have opposite signs, got %v + %v",
+			got[0].deltaTheta, got[1].deltaTheta)
+	}
+
+	// And the K+1 invariant: 2 turns → 3 straights, one row each.
+	var straightCount int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM straights WHERE stint_id LIKE ?`,
+		writer.sessionID+"%",
+	).Scan(&straightCount); err != nil {
+		t.Fatal(err)
+	}
+	if straightCount != 3 {
+		t.Errorf("straights: want 3 (K+1 for K=2), got %d", straightCount)
 	}
 }
 

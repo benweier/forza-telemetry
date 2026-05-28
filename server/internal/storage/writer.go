@@ -2,10 +2,12 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -171,12 +173,13 @@ func (w *Writer) appendTick(t *tick.Tick) error {
 	}
 	if w.cur.collectPath {
 		w.cur.pathSamples = append(w.cur.pathSamples, pathSample{
-			tickNS: t.ServerRecvNS,
-			x:      t.PositionX,
-			z:      t.PositionZ,
-			longG:  t.LongitudinalG,
-			latG:   t.LateralG,
-			lap:    t.LapNumber,
+			tickNS:  t.ServerRecvNS,
+			x:       t.PositionX,
+			z:       t.PositionZ,
+			speedMS: t.Speed,
+			longG:   t.LongitudinalG,
+			latG:    t.LateralG,
+			lap:     t.LapNumber,
 		})
 	}
 	// Backfill car identity once a non-zero CarOrdinal arrives — splitReason
@@ -233,8 +236,25 @@ func (w *Writer) closeStint(reason string) error {
 		}
 	}
 
+	stintID := stintRowID(w.sessionID, cur.ordinal)
+
+	// Aggregator runs first so turns + straights exist when hot-spots are
+	// inserted (the XOR CHECK requires a segment_id at INSERT time).
+	if err := aggregateStint(w.store.db, stintAggregateInput{
+		stintID:      stintID,
+		parquetPath:  cur.path,
+		stintStartNS: cur.startedAtNS,
+		stintEndNS:   cur.lastTickNS,
+		pathSamples:  cur.pathSamples,
+	}); err != nil {
+		w.logger.Error("aggregate stint", "stint", cur.id, "err", err)
+		if closeErr == nil {
+			closeErr = err
+		}
+	}
+
 	hotSpots := 0
-	for _, err := range w.flushHotSpots(cur) {
+	for _, err := range w.flushHotSpots(cur, stintID) {
 		w.logger.Error("insert hot_spot", "stint", cur.id, "err", err)
 		if closeErr == nil {
 			closeErr = err
@@ -244,24 +264,13 @@ func (w *Writer) closeStint(reason string) error {
 		hotSpots += len(d.found)
 	}
 
-	corners := 0
-	if stintType == stintTypeCircuit {
-		var err error
-		corners, err = w.flushCorners(cur)
-		if err != nil {
-			w.logger.Error("insert corners", "stint", cur.id, "err", err)
-			if closeErr == nil {
-				closeErr = err
-			}
-		}
-	}
-
-	if err := aggregateStint(w.store.db, stintRowID(w.sessionID, cur.ordinal), cur.path); err != nil {
-		w.logger.Error("aggregate stint", "stint", cur.id, "err", err)
-		if closeErr == nil {
-			closeErr = err
-		}
-	}
+	var turnCount, straightCount int
+	_ = w.store.db.QueryRow(
+		`SELECT COUNT(*) FROM turns WHERE stint_id = ?`, stintID,
+	).Scan(&turnCount)
+	_ = w.store.db.QueryRow(
+		`SELECT COUNT(*) FROM straights WHERE stint_id = ?`, stintID,
+	).Scan(&straightCount)
 
 	w.logger.Info("stint closed",
 		"stint", cur.id,
@@ -270,61 +279,28 @@ func (w *Writer) closeStint(reason string) error {
 		"ticks", cur.tickCount,
 		"duration_ms", duration.Milliseconds(),
 		"hot_spots", hotSpots,
-		"corners", corners,
+		"turns", turnCount,
+		"straights", straightCount,
 	)
 	return closeErr
 }
 
-// flushCorners groups the collected pathSamples by lap, runs detection per
-// lap, and inserts rows into the corners table. Returns total persisted
-// count + first error encountered.
-func (w *Writer) flushCorners(cur *stintState) (int, error) {
-	if len(cur.pathSamples) == 0 {
-		return 0, nil
-	}
-	stintID := stintRowID(w.sessionID, cur.ordinal)
-
-	// Group consecutive samples by lap number; samples are already sorted
-	// by tickNS so a simple split is enough.
-	lapGroups := make(map[uint16][]pathSample)
-	for _, s := range cur.pathSamples {
-		lapGroups[s.lap] = append(lapGroups[s.lap], s)
-	}
-
-	var firstErr error
-	total := 0
-	for lap, samples := range lapGroups {
-		corners := detectCorners(samples)
-		for i, c := range corners {
-			id := fmt.Sprintf("%s_lap%d_corner%d", stintID, lap, i+1)
-			if _, err := w.store.db.Exec(
-				`INSERT INTO corners
-				 (id, stint_id, lap_number, corner_index,
-				  started_at_ns, apex_tick_ns, ended_at_ns,
-				  peak_curvature, peak_lateral_g, direction)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				id, stintID, int(lap), i+1,
-				c.StartTickNS, c.ApexTickNS, c.EndTickNS,
-				c.PeakCurvature, c.PeakLateralG, c.Direction,
-			); err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("lap %d corner %d: %w", lap, i+1, err)
-				}
-				continue
-			}
-			total++
-		}
-	}
-	return total, firstErr
-}
-
-// flushHotSpots drains each detector and inserts the resulting hot_spots rows.
-// Returns any errors encountered; insertion continues past failures so we
-// persist as many as possible.
-func (w *Writer) flushHotSpots(cur *stintState) []error {
+// flushHotSpots drains each detector and inserts hot_spots rows with each
+// peak attributed to the Turn or Straight whose tick range contains it. The
+// segment lookup is built from the rows the aggregator just inserted — every
+// tick in the stint is covered exactly once thanks to the K+1 Straight
+// invariant (per ADR 0008), so attribution should always succeed. If a peak
+// falls outside any segment (defensive), the hot-spot is dropped with a
+// logged error since the XOR CHECK would otherwise reject the INSERT.
+func (w *Writer) flushHotSpots(cur *stintState, stintID string) []error {
 	var errs []error
+
+	segs, err := loadSegments(w.store.db, stintID)
+	if err != nil {
+		return []error{fmt.Errorf("load segments: %w", err)}
+	}
+
 	seq := 0
-	stintID := stintRowID(w.sessionID, cur.ordinal)
 	for _, d := range cur.detectors {
 		candidates := d.flush(cur.lastTickNS)
 		// Re-attach to d.found so the caller can count them after the loop;
@@ -332,19 +308,100 @@ func (w *Writer) flushHotSpots(cur *stintState) []error {
 		d.found = candidates
 		for _, c := range candidates {
 			seq++
+			turnID, straightID := attributeToSegment(segs, c.PeakNS)
+			if turnID == "" && straightID == "" {
+				errs = append(errs, fmt.Errorf("%s: peak %d unattributed", c.Type, c.PeakNS))
+				continue
+			}
 			id := fmt.Sprintf("%s_hs_%04d", stintID, seq)
+			var tID, sID any
+			if turnID != "" {
+				tID = turnID
+			}
+			if straightID != "" {
+				sID = straightID
+			}
 			if _, err := w.store.db.Exec(
 				`INSERT INTO hot_spots
-				 (id, stint_id, type, started_at_ns, ended_at_ns, peak_tick_ns, peak_value, label)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				 (id, stint_id, type, started_at_ns, ended_at_ns,
+				  peak_tick_ns, peak_value, label, turn_id, straight_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				id, stintID, string(c.Type),
 				c.StartNS, c.EndNS, c.PeakNS, float64(c.PeakValue), c.Label,
+				tID, sID,
 			); err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", c.Type, err))
 			}
 		}
 	}
 	return errs
+}
+
+// segmentRef is one Turn or Straight row, sorted by startNS for attribution
+// lookups.
+type segmentRef struct {
+	id      string
+	isTurn  bool
+	startNS int64
+	endNS   int64
+}
+
+// loadSegments fetches turns + straights for the stint, sorted chronologically.
+// Returns a single merged slice so attribution is one pass per hot-spot.
+func loadSegments(db *sql.DB, stintID string) ([]segmentRef, error) {
+	var out []segmentRef
+	rows, err := db.Query(
+		`SELECT id, started_at_ns, ended_at_ns FROM turns WHERE stint_id = ?`,
+		stintID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("turns: %w", err)
+	}
+	for rows.Next() {
+		var r segmentRef
+		r.isTurn = true
+		if err := rows.Scan(&r.id, &r.startNS, &r.endNS); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan turn: %w", err)
+		}
+		out = append(out, r)
+	}
+	rows.Close()
+
+	rows2, err := db.Query(
+		`SELECT id, started_at_ns, ended_at_ns FROM straights WHERE stint_id = ?`,
+		stintID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("straights: %w", err)
+	}
+	for rows2.Next() {
+		var r segmentRef
+		if err := rows2.Scan(&r.id, &r.startNS, &r.endNS); err != nil {
+			rows2.Close()
+			return nil, fmt.Errorf("scan straight: %w", err)
+		}
+		out = append(out, r)
+	}
+	rows2.Close()
+
+	sort.Slice(out, func(i, j int) bool { return out[i].startNS < out[j].startNS })
+	return out, nil
+}
+
+// attributeToSegment returns (turnID, straightID) where exactly one is non-empty
+// if peakNS lies within a segment's [startNS, endNS] (inclusive). Returns two
+// empty strings if no segment contains the peak.
+func attributeToSegment(segs []segmentRef, peakNS int64) (string, string) {
+	for _, s := range segs {
+		if peakNS >= s.startNS && peakNS <= s.endNS {
+			if s.isTurn {
+				return s.id, ""
+			}
+			return "", s.id
+		}
+	}
+	return "", ""
 }
 
 func (w *Writer) discardStint(cur *stintState, duration time.Duration, reason string) error {
