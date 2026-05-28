@@ -48,7 +48,6 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/v1/stints/{id}", s.handleGetStint)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/laps", s.handleListLaps)
-	s.mux.HandleFunc("GET /api/v1/stints/{id}/hot-spots", s.handleListHotSpots)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/turns", s.handleListTurns)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/straights", s.handleListStraights)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/preview", s.handleListPreview)

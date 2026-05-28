@@ -25,7 +25,10 @@ func TestRESTListPathDefaults(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	wantCols := []string{"server_recv_ns", "pos_x", "pos_y", "pos_z", "speed_ms", "lap_number"}
+	wantCols := []string{
+		"server_recv_ns", "pos_x", "pos_y", "pos_z",
+		"speed_ms", "lap_number", "brake_pct", "lateral_g",
+	}
 	if fmt.Sprint(body.Columns) != fmt.Sprint(wantCols) {
 		t.Errorf("columns: want %v got %v", wantCols, body.Columns)
 	}

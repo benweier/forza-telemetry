@@ -50,8 +50,6 @@ func newTestServer(t *testing.T) *Server {
 	                                          distance_m, peak_lateral_g, peak_brake_pct)
 	                 VALUES (?, ?, 0, 78.5, 50.0, 1500.0, 1.2, 0.85)`,
 		fixStintID+"_lap_0", fixStintID)
-	// Turns must exist before hot_spots — the XOR check requires a
-	// non-null segment FK at INSERT time.
 	mustExec(t, db, `INSERT INTO turns
 	                 (id, stint_id, turn_index, started_at_ns, apex_tick_ns, ended_at_ns,
 	                  peak_curvature, peak_delta_theta, direction, shape)
@@ -67,12 +65,6 @@ func newTestServer(t *testing.T) *Server {
 	                  distance_m, peak_speed_ms)
 	                 VALUES (?, ?, 2, 1200000001, 1900000000, 800.0, 50.0)`,
 		fixStintID+"_straight_2", fixStintID)
-	mustExec(t, db, `INSERT INTO hot_spots
-	                 (id, stint_id, type, started_at_ns, ended_at_ns, peak_tick_ns,
-	                  peak_value, label, turn_id, straight_id)
-	                 VALUES (?, ?, 'peak_lateral_g', 1100000000, 1200000000, 1150000000,
-	                         1.2, '1.2G lateral', ?, NULL)`,
-		fixStintID+"_hs_0001", fixStintID, fixStintID+"_turn_1")
 	mustExec(t, db, `INSERT INTO preview_samples
 	                 (stint_id, second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
 	                  throttle_pct, brake_pct, rpm, pos_x, pos_y, pos_z, lap_number)
@@ -239,22 +231,6 @@ func TestRESTListLaps(t *testing.T) {
 	}
 }
 
-func TestRESTListHotSpots(t *testing.T) {
-	s := newTestServer(t)
-	code, body := doRequest(t, s, "/api/v1/stints/"+fixStintID+"/hot-spots")
-	if code != 200 {
-		t.Fatal(code)
-	}
-	hs := body["hot_spots"].([]any)
-	if len(hs) != 1 {
-		t.Fatalf("hot_spots len: want 1 got %d", len(hs))
-	}
-	first := hs[0].(map[string]any)
-	if first["type"] != "peak_lateral_g" {
-		t.Errorf("type: want peak_lateral_g got %v", first["type"])
-	}
-}
-
 func TestRESTListTurns(t *testing.T) {
 	s := newTestServer(t)
 	code, body := doRequest(t, s, "/api/v1/stints/"+fixStintID+"/turns")
@@ -283,26 +259,6 @@ func TestRESTListStraights(t *testing.T) {
 	straights := body["straights"].([]any)
 	if len(straights) != 2 {
 		t.Fatalf("straights len: want 2 got %d", len(straights))
-	}
-}
-
-func TestRESTHotSpotsCarrySegmentAttribution(t *testing.T) {
-	s := newTestServer(t)
-	code, body := doRequest(t, s, "/api/v1/stints/"+fixStintID+"/hot-spots")
-	if code != 200 {
-		t.Fatal(code)
-	}
-	hs := body["hot_spots"].([]any)
-	if len(hs) != 1 {
-		t.Fatalf("hot_spots len: want 1 got %d", len(hs))
-	}
-	first := hs[0].(map[string]any)
-	turnID, ok := first["turn_id"].(string)
-	if !ok || turnID != fixStintID+"_turn_1" {
-		t.Errorf("turn_id: want %q got %v", fixStintID+"_turn_1", first["turn_id"])
-	}
-	if first["straight_id"] != nil {
-		t.Errorf("straight_id: want null got %v", first["straight_id"])
 	}
 }
 

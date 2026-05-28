@@ -110,42 +110,6 @@ func (s *Server) handleListLaps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"laps": out})
 }
 
-type hotSpotRow struct {
-	ID          string         `json:"id"`
-	Type        string         `json:"type"`
-	StartedAtNS int64          `json:"started_at_ns"`
-	EndedAtNS   int64          `json:"ended_at_ns"`
-	PeakTickNS  int64          `json:"peak_tick_ns"`
-	PeakValue   float64        `json:"peak_value"`
-	Label       string         `json:"label"`
-	TurnID      nullableString `json:"turn_id"`
-	StraightID  nullableString `json:"straight_id"`
-}
-
-func (s *Server) handleListHotSpots(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	rows, err := s.store.DB().Query(`
-		SELECT id, type, started_at_ns, ended_at_ns, peak_tick_ns, peak_value, label,
-		       turn_id, straight_id
-		FROM hot_spots WHERE stint_id = ? ORDER BY peak_tick_ns`, id)
-	if err != nil {
-		s.internalError(w, "list_hot_spots", err)
-		return
-	}
-	defer rows.Close()
-	out := []hotSpotRow{}
-	for rows.Next() {
-		var h hotSpotRow
-		if err := rows.Scan(&h.ID, &h.Type, &h.StartedAtNS, &h.EndedAtNS,
-			&h.PeakTickNS, &h.PeakValue, &h.Label, &h.TurnID, &h.StraightID); err != nil {
-			s.internalError(w, "list_hot_spots scan", err)
-			return
-		}
-		out = append(out, h)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"hot_spots": out})
-}
-
 type turnRow struct {
 	ID             string         `json:"id"`
 	TurnIndex      int            `json:"turn_index"`
