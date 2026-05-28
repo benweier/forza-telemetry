@@ -44,20 +44,16 @@ _Avoid_: Locked, starred, favorited.
 A **Session** that has been irreversibly reduced from full-rate **Tick** capture to a lower rate (target rate TBD, e.g. 10 Hz) to reclaim space. The aggregates and 1 Hz preview series are preserved; only the raw **Tick** stream is reduced. Triggered by explicit user action; the UI may recommend it for unpinned **Sessions** older than 10 days but never performs it automatically.
 _Avoid_: Compressed, archived, decimated.
 
-**Hot-spot**:
-An auto-detected notable moment within a **Stint**, identified at ingest by signal-processing the **Tick** stream for local maxima/minima within a rolling window (windowed prominence, not single global peak per metric). Each **Hot-spot** has a type (e.g. `peak_lateral_g`, `peak_brake`, `top_speed`, `off_track`, `hard_landing`), a **Tick** range, and an auto-generated label. Multiple **Hot-spots** of the same type can exist per **Stint** — one per "region" — enabling per-corner or per-segment comparison.
-_Avoid_: Marker, peak, event (too generic).
-
 **Bookmark**:
-A user-marked moment placed on a single **Tick** during live or scrub playback, optionally with a free-form note. Distinct from **Hot-spot** (which is system-detected) and from **Snapshot** (which is a durable capture).
+A user-marked moment placed on a single **Tick** during live or scrub playback, optionally with a free-form note. Distinct from a **Snapshot** (which is a durable capture).
 _Avoid_: Marker, flag, pin.
 
 **Snapshot**:
-A durable capture of telemetry state at a chosen moment (one **Tick** or a small window around it), saved as a first-class record that survives **Downsampling** of its source **Session**. Can be created from a **Hot-spot**, a **Bookmark**, or any arbitrary scrub position. Supports side-by-side comparison and export (PNG / JSON / CSV).
+A durable capture of telemetry state at a chosen moment (one **Tick** or a small window around it), saved as a first-class record that survives **Downsampling** of its source **Session**. Can be created from a **Bookmark** or any arbitrary scrub position. Supports side-by-side comparison and export (PNG / JSON / CSV).
 _Avoid_: Capture, frame, freeze.
 
 **Track Path**:
-The spatial trajectory of a **Stint**, derived from each **Tick**'s `PositionX/Y/Z`. Rendered as a polyline in the mini-map view and used to anchor **Hot-spot** pins. Day-one renderer plots raw world coordinates with auto-fit bounds; a future enhancement may overlay onto Forza region map tiles.
+The spatial trajectory of a **Stint**, derived from each **Tick**'s `PositionX/Y/Z`. Rendered as a polyline in the mini-map view, optionally coloured by a per-**Tick** channel (speed, brake force, lateral G). Day-one renderer plots raw world coordinates with auto-fit bounds; a future enhancement may overlay onto Forza region map tiles.
 _Avoid_: Route, trace, line.
 
 **Turn**:
@@ -65,7 +61,7 @@ A **Tick** range within a **Stint** where the driven path deviates from a straig
 _Avoid_: Corner, bend, segment, sector. (Historical: previously named "Corner"; renamed when detection was extended to non-Lap stints.)
 
 **Straight**:
-A **Tick** range within a **Stint** that fills the gap between two **Turns** (or between a stint boundary and the first/last **Turn**). Numbered chronologically along the **Stint** (`straight_1`, `straight_2`, …) such that **Straight** `N` lies before **Turn** `N` (with one trailing **Straight** after the final **Turn**). Always paired structurally with **Turns**: a **Stint** with `K` Turns has exactly `K+1` Straights covering the rest of the **Tick** range, never overlapping. Stored as first-class rows so **Hot-spots** can be attributed unambiguously to either a **Turn** or a **Straight**.
+A **Tick** range within a **Stint** that fills the gap between two **Turns** (or between a stint boundary and the first/last **Turn**). Numbered chronologically along the **Stint** (`straight_1`, `straight_2`, …) such that **Straight** `N` lies before **Turn** `N` (with one trailing **Straight** after the final **Turn**). A **Stint** with `K` **Turns** has exactly `K+1` **Straights** covering the rest of the **Tick** range, never overlapping. Only emitted for **Stints** where path geometry was collected (**Circuit** and **Sprint** types); **Freeroam** and **Idle** stints have neither **Turns** nor **Straights**.
 _Avoid_: Straightaway, line, run.
 
 **Comparison**:
@@ -81,8 +77,6 @@ _Avoid_: Overlay, diff, vs-mode.
 - A **Stint** is composed of a contiguous run of **Ticks**
 - A **Stint** references exactly one **Car** (the car driven for its duration)
 - A **Lap** references a sub-range of its parent **Stint**'s **Ticks**
-- A **Stint** has zero or more **Hot-spots** (auto-detected at ingest)
 - A **Stint** has zero or more **Bookmarks** (user-marked during playback)
 - A **Snapshot** references one **Tick** (and optionally a window) and persists independently of its source **Stint**'s downsampling state
-- A **Stint** contains zero or more **Turns** and exactly `(turn_count + 1)` **Straights** if `turn_count > 0`, else a single **Straight** spanning the whole **Stint**
-- A **Hot-spot** is attributed to exactly one **Turn** or exactly one **Straight** within its parent **Stint**
+- **Circuit** and **Sprint** **Stints** contain zero or more **Turns** and exactly `(turn_count + 1)` **Straights**; **Freeroam** and **Idle** **Stints** have neither

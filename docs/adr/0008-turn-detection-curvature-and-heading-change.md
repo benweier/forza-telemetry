@@ -2,6 +2,18 @@
 
 Supersedes [ADR 0007](./0007-corner-detection-curvature-and-lateral-g.md).
 
+> **Revision (post-implementation):** the original draft of this ADR included
+> a Hot-spot attribution model (each Hot-spot carried `turn_id` or
+> `straight_id` via an XOR CHECK). After live use the Hot-spot table was
+> dropped entirely — the continuous channel-coloured **Track Path** carries
+> the same "where did peaks happen" signal without the per-row noise, so
+> the detector + table earned their keep only as a UI catalogue. **Turn
+> and Straight detection are kept** for their intrinsic per-place
+> identity (catalogue panel, future shape classification, future
+> Comparison-view anchoring). The Hot-spot-specific paragraphs below are
+> retained for historical context but no longer reflect shipping
+> behaviour.
+
 **Turns** (renamed from Corners) are detected at end-of-stint by combining path curvature `κ(s)` with per-region accumulated heading change `Δθ`. Lateral G no longer participates in detection — driver repositioning on a straight produces lat-G without imposing a track-defined direction change, and was a known source of false positives.
 
 Boundaries are extended backwards into the braking zone and forwards into the exit-acceleration zone using longitudinal G thresholds (carried forward from ADR 0007). The entry / apex / exit phases of a Turn therefore include the braking and acceleration adjacent to the curvature peak.

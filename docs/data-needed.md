@@ -68,14 +68,6 @@ or what new questions surfaced.
 - **Code dep:** drives every stint split + final `stint_type` label.
 - **Edge case to verify:** single transient tick of opposite category causes a split today (no hysteresis). Real captures may show flapping that warrants a debounce window.
 
-### Hot-spot thresholds (`hotspot.go`)
-- **First-pass defaults:**
-  - `peak_lateral_g`: trigger 0.7g / release 0.5g
-  - `peak_brake`: trigger 0.5 / release 0.3
-  - `top_speed`: trigger 30 m/s / release 25 m/s
-- **Needs:** real race captures with rough labels — "this corner felt like 1.2g", "I floored it down the back straight". Tune so detected hot-spots match driver intuition.
-- **Missing detectors:** `off_track` (boolean signal — wheel-on-rumble OR in-puddle) and `hard_landing` (vertical accel or suspension travel spike). Need captures with deliberate off-tracks and jumps to characterise the signal shapes before implementing.
-
 ### Turn detector (per ADR 0008)
 - **Direction convention:** `right` if signed κ > 0 under `atan2(dx, dz)`. Verified on synthetic paths only.
 - **Needs:** drive a known track with catalogued turn directions (e.g., Goliath, Mulege circuit) — confirm right/left labels match reality.
