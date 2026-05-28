@@ -8,7 +8,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { fetchAndParse } from "~/utils/api";
 import {
-  HotSpotsResponseSchema,
   LapsResponseSchema,
   PathResponseSchema,
   PreviewResponseSchema,
@@ -45,12 +44,6 @@ export const lapsQuery = (id: string) =>
   queryOptions({
     queryKey: ["stints", id, "laps"] as const,
     queryFn: () => fetchAndParse(`/stints/${id}/laps`, LapsResponseSchema),
-  });
-
-export const hotSpotsQuery = (id: string) =>
-  queryOptions({
-    queryKey: ["stints", id, "hot-spots"] as const,
-    queryFn: () => fetchAndParse(`/stints/${id}/hot-spots`, HotSpotsResponseSchema),
   });
 
 export const turnsQuery = (id: string) =>

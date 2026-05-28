@@ -91,21 +91,6 @@ export const LapSchema = v.object({
 });
 export const LapsResponseSchema = v.object({ laps: v.array(LapSchema) });
 
-export const HotSpotSchema = v.object({
-  id: v.string(),
-  type: v.string(),
-  started_at_ns: v.number(),
-  ended_at_ns: v.number(),
-  peak_tick_ns: v.number(),
-  peak_value: v.number(),
-  label: v.string(),
-  // Per ADR 0008, each hot-spot belongs to exactly one Turn or one Straight
-  // (XOR enforced server-side). Both null on legacy rows, never both non-null.
-  turn_id: NullableString,
-  straight_id: NullableString,
-});
-export const HotSpotsResponseSchema = v.object({ hot_spots: v.array(HotSpotSchema) });
-
 export const TurnSchema = v.object({
   id: v.string(),
   turn_index: v.number(),
@@ -165,7 +150,6 @@ export type StintDetail = v.InferOutput<typeof StintDetailSchema>;
 export type StintSummary = v.InferOutput<typeof StintSummarySchema>;
 export type CarIdentity = v.InferOutput<typeof CarIdentitySchema>;
 export type Lap = v.InferOutput<typeof LapSchema>;
-export type HotSpot = v.InferOutput<typeof HotSpotSchema>;
 export type Turn = v.InferOutput<typeof TurnSchema>;
 export type Straight = v.InferOutput<typeof StraightSchema>;
 export type PreviewSample = v.InferOutput<typeof PreviewSampleSchema>;
