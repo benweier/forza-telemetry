@@ -60,12 +60,16 @@ _Avoid_: Capture, frame, freeze.
 The spatial trajectory of a **Stint**, derived from each **Tick**'s `PositionX/Y/Z`. Rendered as a polyline in the mini-map view and used to anchor **Hot-spot** pins. Day-one renderer plots raw world coordinates with auto-fit bounds; a future enhancement may overlay onto Forza region map tiles.
 _Avoid_: Route, trace, line.
 
-**Corner**:
-A Tick range within a **Lap** representing a single corner, with explicit `entry / apex / exit` phases. Detected at ingest by combining **path curvature** derived from the **Track Path** (geometric — consistent across Laps over the same track) with sustained lateral G (physics — confirms the corner was actually driven as one). Boundaries are extended backwards into the braking zone and forwards into the exit acceleration zone using longitudinal G thresholds. Numbered chronologically within each Lap (`corner_1`, `corner_2`, …). Curvature-based identity means a given Corner's number is stable across Laps even when one Lap clips the apex differently.
-_Avoid_: Bend, turn, segment, sector.
+**Turn**:
+A **Tick** range within a **Stint** where the driven path deviates from a straight line in a way the track itself imposes (as opposed to driver repositioning on a straight). Detected from **Track Path** curvature, with auxiliary signals (e.g. sustained lateral G, steering input duration) used to suppress false positives from in-lane corrections. Has explicit `entry / apex / exit` phases. Numbered chronologically along the **Stint** (`turn_1`, `turn_2`, …). On **Circuit** stints, curvature-based identity holds the number stable across **Laps** even when one Lap clips the apex differently. **Sprint** stints get a single pass of numbering. Future **Shape** classification (chicane, hairpin, sweeper, dogleg, esses, …) will categorise individual Turns; not yet modelled.
+_Avoid_: Corner, bend, segment, sector. (Historical: previously named "Corner"; renamed when detection was extended to non-Lap stints.)
+
+**Straight**:
+A **Tick** range within a **Stint** that fills the gap between two **Turns** (or between a stint boundary and the first/last **Turn**). Numbered chronologically along the **Stint** (`straight_1`, `straight_2`, …) such that **Straight** `N` lies before **Turn** `N` (with one trailing **Straight** after the final **Turn**). Always paired structurally with **Turns**: a **Stint** with `K` Turns has exactly `K+1` Straights covering the rest of the **Tick** range, never overlapping. Stored as first-class rows so **Hot-spots** can be attributed unambiguously to either a **Turn** or a **Straight**.
+_Avoid_: Straightaway, line, run.
 
 **Comparison**:
-A user-assembled set of 2-6 comparable units (**Laps**, **Corners**, or **Snapshots**) rendered together: time-series channels overlaid on shared charts and **Track Paths** overlaid on the mini-map (ghost-car style, color-coded). Time-series x-axis is always **cumulative distance from entity start**, not elapsed time, to avoid misleading visual offsets when one entity is slower than another. Comparison across different **Cars** or different auto-classified tracks is permitted with a UI warning, never blocked.
+A user-assembled set of 2-6 comparable units (**Laps**, **Turns**, or **Snapshots**) rendered together: time-series channels overlaid on shared charts and **Track Paths** overlaid on the mini-map (ghost-car style, color-coded). Time-series x-axis is always **cumulative distance from entity start**, not elapsed time, to avoid misleading visual offsets when one entity is slower than another. Comparison across different **Cars** or different auto-classified tracks is permitted with a UI warning, never blocked.
 _Avoid_: Overlay, diff, vs-mode.
 
 ## Relationships
@@ -80,4 +84,5 @@ _Avoid_: Overlay, diff, vs-mode.
 - A **Stint** has zero or more **Hot-spots** (auto-detected at ingest)
 - A **Stint** has zero or more **Bookmarks** (user-marked during playback)
 - A **Snapshot** references one **Tick** (and optionally a window) and persists independently of its source **Stint**'s downsampling state
-- A **Lap** contains zero or more **Corners** (auto-detected at ingest from path curvature + lateral G)
+- A **Stint** contains zero or more **Turns** and exactly `(turn_count + 1)` **Straights** if `turn_count > 0`, else a single **Straight** spanning the whole **Stint**
+- A **Hot-spot** is attributed to exactly one **Turn** or exactly one **Straight** within its parent **Stint**
