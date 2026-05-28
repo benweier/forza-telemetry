@@ -41,22 +41,18 @@ func aggregateStint(db *sql.DB, in stintAggregateInput) error {
 	if err := insertPreviewSamples(db, in.stintID, pq); err != nil {
 		return fmt.Errorf("preview_samples: %w", err)
 	}
-	// Turn detection runs only when path samples were collected (Circuit +
-	// Sprint stints per ADR 0008). Straight derivation always runs so every
-	// stint has at least one Straight covering its full tick range — this
-	// keeps the K+1 invariant true everywhere and gives hot-spots a segment
-	// to attribute to even in Freeroam / Idle stints where no Turns are
-	// detected.
-	var turns []turnCandidate
+	// Turn + Straight detection runs only when path samples were collected
+	// (Circuit + Sprint stints per ADR 0008). Freeroam / Idle stints skip the
+	// pass entirely — they have no path geometry to segment.
 	if len(in.pathSamples) > 0 {
-		turns = detectTurns(in.pathSamples)
+		turns := detectTurns(in.pathSamples)
 		if err := insertTurns(db, in.stintID, turns); err != nil {
 			return fmt.Errorf("turns: %w", err)
 		}
-	}
-	straights := deriveStraights(turns, in.pathSamples, in.stintStartNS, in.stintEndNS)
-	if err := insertStraights(db, in.stintID, straights); err != nil {
-		return fmt.Errorf("straights: %w", err)
+		straights := deriveStraights(turns, in.pathSamples, in.stintStartNS, in.stintEndNS)
+		if err := insertStraights(db, in.stintID, straights); err != nil {
+			return fmt.Errorf("straights: %w", err)
+		}
 	}
 	return nil
 }

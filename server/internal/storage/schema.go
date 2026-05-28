@@ -56,21 +56,6 @@ var schemaStatements = []string{
 		peak_speed_ms   DOUBLE
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_straights_stint ON straights(stint_id, straight_index)`,
-	`CREATE TABLE IF NOT EXISTS hot_spots (
-		id            TEXT PRIMARY KEY,
-		stint_id      TEXT NOT NULL REFERENCES stints(id),
-		type          TEXT NOT NULL,
-		started_at_ns BIGINT NOT NULL,
-		ended_at_ns   BIGINT NOT NULL,
-		peak_tick_ns  BIGINT NOT NULL,
-		peak_value    DOUBLE NOT NULL,
-		label         TEXT NOT NULL,
-		turn_id       TEXT REFERENCES turns(id),
-		straight_id   TEXT REFERENCES straights(id),
-		CHECK ((turn_id IS NULL) <> (straight_id IS NULL))
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_hotspots_stint ON hot_spots(stint_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_hotspots_type ON hot_spots(stint_id, type)`,
 	`CREATE TABLE IF NOT EXISTS stint_summary (
 		stint_id          TEXT PRIMARY KEY REFERENCES stints(id),
 		top_speed_ms      DOUBLE,
