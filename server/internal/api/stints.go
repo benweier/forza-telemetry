@@ -111,19 +111,22 @@ func (s *Server) handleListLaps(w http.ResponseWriter, r *http.Request) {
 }
 
 type hotSpotRow struct {
-	ID          string  `json:"id"`
-	Type        string  `json:"type"`
-	StartedAtNS int64   `json:"started_at_ns"`
-	EndedAtNS   int64   `json:"ended_at_ns"`
-	PeakTickNS  int64   `json:"peak_tick_ns"`
-	PeakValue   float64 `json:"peak_value"`
-	Label       string  `json:"label"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	StartedAtNS int64          `json:"started_at_ns"`
+	EndedAtNS   int64          `json:"ended_at_ns"`
+	PeakTickNS  int64          `json:"peak_tick_ns"`
+	PeakValue   float64        `json:"peak_value"`
+	Label       string         `json:"label"`
+	TurnID      nullableString `json:"turn_id"`
+	StraightID  nullableString `json:"straight_id"`
 }
 
 func (s *Server) handleListHotSpots(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	rows, err := s.store.DB().Query(`
-		SELECT id, type, started_at_ns, ended_at_ns, peak_tick_ns, peak_value, label
+		SELECT id, type, started_at_ns, ended_at_ns, peak_tick_ns, peak_value, label,
+		       turn_id, straight_id
 		FROM hot_spots WHERE stint_id = ? ORDER BY peak_tick_ns`, id)
 	if err != nil {
 		s.internalError(w, "list_hot_spots", err)
@@ -133,7 +136,8 @@ func (s *Server) handleListHotSpots(w http.ResponseWriter, r *http.Request) {
 	out := []hotSpotRow{}
 	for rows.Next() {
 		var h hotSpotRow
-		if err := rows.Scan(&h.ID, &h.Type, &h.StartedAtNS, &h.EndedAtNS, &h.PeakTickNS, &h.PeakValue, &h.Label); err != nil {
+		if err := rows.Scan(&h.ID, &h.Type, &h.StartedAtNS, &h.EndedAtNS,
+			&h.PeakTickNS, &h.PeakValue, &h.Label, &h.TurnID, &h.StraightID); err != nil {
 			s.internalError(w, "list_hot_spots scan", err)
 			return
 		}
@@ -142,40 +146,72 @@ func (s *Server) handleListHotSpots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"hot_spots": out})
 }
 
-type cornerRow struct {
-	ID            string  `json:"id"`
-	LapNumber     int     `json:"lap_number"`
-	CornerIndex   int     `json:"corner_index"`
-	StartedAtNS   int64   `json:"started_at_ns"`
-	ApexTickNS    int64   `json:"apex_tick_ns"`
-	EndedAtNS     int64   `json:"ended_at_ns"`
-	PeakCurvature float64 `json:"peak_curvature"`
-	PeakLateralG  float64 `json:"peak_lateral_g"`
-	Direction     string  `json:"direction"`
+type turnRow struct {
+	ID             string         `json:"id"`
+	TurnIndex      int            `json:"turn_index"`
+	StartedAtNS    int64          `json:"started_at_ns"`
+	ApexTickNS     int64          `json:"apex_tick_ns"`
+	EndedAtNS      int64          `json:"ended_at_ns"`
+	PeakCurvature  float64        `json:"peak_curvature"`
+	PeakDeltaTheta float64        `json:"peak_delta_theta"`
+	Direction      string         `json:"direction"`
+	Shape          nullableString `json:"shape"`
 }
 
-func (s *Server) handleListCorners(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListTurns(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	rows, err := s.store.DB().Query(`
-		SELECT id, lap_number, corner_index, started_at_ns, apex_tick_ns, ended_at_ns,
-		       peak_curvature, peak_lateral_g, direction
-		FROM corners WHERE stint_id = ? ORDER BY lap_number, corner_index`, id)
+		SELECT id, turn_index, started_at_ns, apex_tick_ns, ended_at_ns,
+		       peak_curvature, peak_delta_theta, direction, shape
+		FROM turns WHERE stint_id = ? ORDER BY turn_index`, id)
 	if err != nil {
-		s.internalError(w, "list_corners", err)
+		s.internalError(w, "list_turns", err)
 		return
 	}
 	defer rows.Close()
-	out := []cornerRow{}
+	out := []turnRow{}
 	for rows.Next() {
-		var c cornerRow
-		if err := rows.Scan(&c.ID, &c.LapNumber, &c.CornerIndex, &c.StartedAtNS, &c.ApexTickNS, &c.EndedAtNS,
-			&c.PeakCurvature, &c.PeakLateralG, &c.Direction); err != nil {
-			s.internalError(w, "list_corners scan", err)
+		var t turnRow
+		if err := rows.Scan(&t.ID, &t.TurnIndex, &t.StartedAtNS, &t.ApexTickNS, &t.EndedAtNS,
+			&t.PeakCurvature, &t.PeakDeltaTheta, &t.Direction, &t.Shape); err != nil {
+			s.internalError(w, "list_turns scan", err)
 			return
 		}
-		out = append(out, c)
+		out = append(out, t)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"corners": out})
+	writeJSON(w, http.StatusOK, map[string]any{"turns": out})
+}
+
+type straightRow struct {
+	ID            string          `json:"id"`
+	StraightIndex int             `json:"straight_index"`
+	StartedAtNS   int64           `json:"started_at_ns"`
+	EndedAtNS     int64           `json:"ended_at_ns"`
+	DistanceM     float64         `json:"distance_m"`
+	PeakSpeedMS   nullableFloat64 `json:"peak_speed_ms"`
+}
+
+func (s *Server) handleListStraights(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rows, err := s.store.DB().Query(`
+		SELECT id, straight_index, started_at_ns, ended_at_ns, distance_m, peak_speed_ms
+		FROM straights WHERE stint_id = ? ORDER BY straight_index`, id)
+	if err != nil {
+		s.internalError(w, "list_straights", err)
+		return
+	}
+	defer rows.Close()
+	out := []straightRow{}
+	for rows.Next() {
+		var st straightRow
+		if err := rows.Scan(&st.ID, &st.StraightIndex, &st.StartedAtNS, &st.EndedAtNS,
+			&st.DistanceM, &st.PeakSpeedMS); err != nil {
+			s.internalError(w, "list_straights scan", err)
+			return
+		}
+		out = append(out, st)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"straights": out})
 }
 
 type previewRow struct {
