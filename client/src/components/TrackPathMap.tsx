@@ -1,18 +1,21 @@
 /* Hallmark · component: track-path-map · genre: dashboard · theme: Glass
- * 3D track-path minimap. Renders the speed-coloured polyline plus picked
- * hot-spot markers (lateral G peak / braking peak / top speed) under an
- * OrbitView. Hover tooltips on either layer surface the underlying data
- * (speed + lap on segments, label + magnitude on hot-spots).
+ * 3D track-path minimap. Per ADR 0008, hot-spots are pre-attributed to a
+ * Turn or a Straight server-side. The marker layer then renders one hot-spot
+ * per (segment, type), keeping the densest-on-corners stints readable
+ * without losing per-place visibility (top-N by peak_value would drop entire
+ * places; per-segment-per-type doesn't).
  */
 import { COORDINATE_SYSTEM, OrbitView, type PickingInfo } from "@deck.gl/core";
 import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
-import type { HotSpot, PathResponse } from "~/utils/schemas";
+import type { HotSpot, PathResponse, Straight, Turn } from "~/utils/schemas";
 
 interface TrackPathMapProps {
   path: PathResponse;
   hotSpots?: HotSpot[];
+  turns?: Turn[];
+  straights?: Straight[];
 }
 
 interface Segment {
@@ -29,12 +32,13 @@ interface HotSpotMarker {
   type: string;
   label: string;
   value: number;
+  segmentLabel: string; // "Turn 3" / "Straight 2"
 }
 
-export function TrackPathMap({ path, hotSpots }: TrackPathMapProps) {
+export function TrackPathMap({ path, hotSpots, turns, straights }: TrackPathMapProps) {
   const { segments, markers, extent } = useMemo(
-    () => buildScene(path, hotSpots ?? []),
-    [path, hotSpots],
+    () => buildScene(path, hotSpots ?? [], turns ?? [], straights ?? []),
+    [path, hotSpots, turns, straights],
   );
 
   if (segments.length < 1) {
@@ -128,6 +132,8 @@ interface PathPoint {
 function buildScene(
   path: PathResponse,
   hotSpots: HotSpot[],
+  turns: Turn[],
+  straights: Straight[],
 ): { segments: Segment[]; markers: HotSpotMarker[]; extent: number } {
   const pts: PathPoint[] = [];
   for (const row of path.rows) {
@@ -149,7 +155,6 @@ function buildScene(
     return { segments: [], markers: [], extent: 1 };
   }
 
-  // One pass for bounds.
   let minX = Infinity,
     maxX = -Infinity,
     minY = Infinity,
@@ -169,8 +174,6 @@ function buildScene(
   const cz = (minZ + maxZ) / 2;
   const extent = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
 
-  // Segments between consecutive samples — colour the segment by the speed
-  // at its end (matches "what speed did we reach by this point").
   const segments: Segment[] = new Array(pts.length - 1);
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
@@ -184,18 +187,42 @@ function buildScene(
     };
   }
 
-  // Hot-spot 3D positions = the path point nearest to peak_tick_ns. Path
-  // rows are already ORDER BY server_recv_ns, so binary search is safe.
-  const markers: HotSpotMarker[] = [];
+  // Per ADR 0008, every hot-spot carries either turn_id or straight_id (XOR).
+  // Group by (segment_id, type) and keep the peak with the highest peak_value
+  // so each segment surfaces one marker per kind of event — densely-cornered
+  // tracks read cleanly without sacrificing per-place visibility.
+  const turnByID = new Map(turns.map((t) => [t.id, t]));
+  const straightByID = new Map(straights.map((s) => [s.id, s]));
+  const best = new Map<string, HotSpot>();
   for (const h of hotSpots) {
+    const segmentID = h.turn_id ?? h.straight_id;
+    if (!segmentID) continue;
+    const key = `${segmentID}::${h.type}`;
+    const prev = best.get(key);
+    if (!prev || h.peak_value > prev.peak_value) {
+      best.set(key, h);
+    }
+  }
+
+  const markers: HotSpotMarker[] = [];
+  for (const h of best.values()) {
     const p = nearestPoint(pts, h.peak_tick_ns);
     if (!p) continue;
+    let segmentLabel = "—";
+    if (h.turn_id) {
+      const t = turnByID.get(h.turn_id);
+      if (t) segmentLabel = `Turn ${t.turn_index}`;
+    } else if (h.straight_id) {
+      const s = straightByID.get(h.straight_id);
+      if (s) segmentLabel = `Straight ${s.straight_index}`;
+    }
     markers.push({
       id: h.id,
       pos: [p.x - cx, p.y - cy, p.z - cz],
       type: h.type,
       label: h.label,
       value: h.peak_value,
+      segmentLabel,
     });
   }
 
@@ -211,8 +238,6 @@ function nearestPoint(pts: PathPoint[], tickNS: number): PathPoint | null {
     if (pts[mid].tickNS < tickNS) lo = mid + 1;
     else hi = mid;
   }
-  // lo now indexes the first >= tickNS; compare with previous to pick the
-  // closer of the two candidates.
   const cand = pts[lo];
   if (lo === 0) return cand;
   const prev = pts[lo - 1];
@@ -221,11 +246,6 @@ function nearestPoint(pts: PathPoint[], tickNS: number): PathPoint | null {
 
 // ---------- visuals ----------
 
-/**
- * Speed → colour ramp. m/s into a cool-to-hot mapping:
- *   0 m/s   → blue (cool)
- *   90 m/s+ → red/orange (hot, ≈ 324 km/h ceiling for Forza top speeds)
- */
 function speedToColor(speedMS: number): [number, number, number, number] {
   const t = Math.min(Math.max(speedMS / 90, 0), 1);
   const stops: Array<[number, [number, number, number]]> = [
@@ -254,13 +274,13 @@ function speedToColor(speedMS: number): [number, number, number, number] {
 function hotSpotColor(type: string): [number, number, number, number] {
   switch (type) {
     case "peak_lateral_g": {
-      return [255, 200, 60, 230]; // amber — cornering
+      return [255, 200, 60, 230];
     }
     case "peak_brake": {
-      return [240, 80, 80, 230]; // red — braking
+      return [240, 80, 80, 230];
     }
     case "top_speed": {
-      return [80, 180, 255, 230]; // blue — speed
+      return [80, 180, 255, 230];
     }
     default: {
       return [200, 200, 200, 230];
@@ -297,7 +317,7 @@ function tooltipFor(info: PickingInfo): string | null {
   }
   if (info.layer?.id === "hot-spots") {
     const m = info.object as HotSpotMarker;
-    return `${m.label}\n${hotSpotTypeLabel(m.type)}`;
+    return `${m.segmentLabel} · ${hotSpotTypeLabel(m.type)}\n${m.label}`;
   }
   return null;
 }
@@ -322,7 +342,7 @@ function Legend({ hz, markerCount }: { hz: number; markerCount: number }) {
       </div>
       {markerCount > 0 && (
         <span className="border-l border-foreground/10 pl-3 tabular-nums">
-          {markerCount} hot-spot{markerCount === 1 ? "" : "s"}
+          {markerCount} marker{markerCount === 1 ? "" : "s"}
         </span>
       )}
     </div>

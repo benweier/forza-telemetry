@@ -8,14 +8,15 @@ import { TickPreviewChart } from "~/components/TickPreviewChart";
 import { TrackPathMap } from "~/components/TrackPathMap";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
 import {
-  cornersQuery,
   hotSpotsQuery,
   lapsQuery,
   pathQuery,
   previewQuery,
   stintQuery,
+  straightsQuery,
+  turnsQuery,
 } from "~/utils/queries";
-import type { Corner, HotSpot, Lap, StintDetail, StintSummary } from "~/utils/schemas";
+import type { HotSpot, Lap, StintDetail, StintSummary, Turn } from "~/utils/schemas";
 
 export const Route = createFileRoute("/stints/$stintId")({
   component: StintDetailRoute,
@@ -28,7 +29,8 @@ export const Route = createFileRoute("/stints/$stintId")({
       context.queryClient.prefetchQuery(previewQuery(id)),
       context.queryClient.prefetchQuery(pathQuery(id)),
       context.queryClient.prefetchQuery(hotSpotsQuery(id)),
-      context.queryClient.prefetchQuery(cornersQuery(id)),
+      context.queryClient.prefetchQuery(turnsQuery(id)),
+      context.queryClient.prefetchQuery(straightsQuery(id)),
       context.queryClient.prefetchQuery(lapsQuery(id)),
     ]);
   },
@@ -40,7 +42,8 @@ function StintDetailRoute() {
   const preview = useQuery(previewQuery(stintId));
   const path = useQuery(pathQuery(stintId));
   const hotSpots = useQuery(hotSpotsQuery(stintId));
-  const corners = useQuery(cornersQuery(stintId));
+  const turns = useQuery(turnsQuery(stintId));
+  const straights = useQuery(straightsQuery(stintId));
   const laps = useQuery(lapsQuery(stintId));
 
   return (
@@ -58,7 +61,12 @@ function StintDetailRoute() {
           <SectionHeading>Track path</SectionHeading>
           {path.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
           {path.data && (
-            <TrackPathMap path={path.data} hotSpots={hotSpots.data?.hot_spots} />
+            <TrackPathMap
+              path={path.data}
+              hotSpots={hotSpots.data?.hot_spots}
+              turns={turns.data?.turns}
+              straights={straights.data?.straights}
+            />
           )}
 
           <SectionHeading>Preview</SectionHeading>
@@ -68,7 +76,7 @@ function StintDetailRoute() {
 
         <aside className="flex flex-col gap-4">
           <HotSpotsCard query={hotSpots} />
-          <CornersCard query={corners} />
+          <TurnsCard query={turns} />
           <LapsCard query={laps} />
         </aside>
       </div>
@@ -266,31 +274,34 @@ function HotSpotsCard({ query }: { query: QueryResult<{ hot_spots: HotSpot[] }> 
   );
 }
 
-function CornersCard({ query }: { query: QueryResult<{ corners: Corner[] }> }) {
-  const corners = query.data?.corners ?? [];
+function TurnsCard({ query }: { query: QueryResult<{ turns: Turn[] }> }) {
+  const turns = query.data?.turns ?? [];
   return (
-    <Card title="Corners" icon="lucide:rotate-3d" count={corners.length}>
+    <Card title="Turns" icon="lucide:rotate-3d" count={turns.length}>
       {query.isLoading && <ListSkeleton rows={2} />}
-      {!query.isLoading && corners.length === 0 && (
-        <EmptyLine>Corners are detected only for circuit stints.</EmptyLine>
+      {!query.isLoading && turns.length === 0 && (
+        <EmptyLine>No turns detected (likely a freeroam or idle stint).</EmptyLine>
       )}
-      {corners.length > 0 && (
+      {turns.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {corners.map((c) => (
+          {turns.map((c) => (
             <li
               key={c.id}
               className="flex items-center justify-between gap-3 rounded-xl bg-surface-secondary px-3 py-2"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-sm font-medium text-foreground">
-                  Lap {c.lap_number} · Corner {c.corner_index}
+                  Turn {c.turn_index}
+                  {c.shape && (
+                    <span className="ml-1 text-muted">· {c.shape}</span>
+                  )}
                 </span>
                 <span className="text-xs text-muted">
-                  {c.direction} · {c.peak_lateral_g.toFixed(2)}G
+                  {c.direction} · Δθ {(c.peak_delta_theta * (180 / Math.PI)).toFixed(0)}°
                 </span>
               </div>
               <span className="text-xs text-muted tabular-nums">
-                κ {c.peak_curvature.toFixed(3)}
+                κ {Math.abs(c.peak_curvature).toFixed(3)}
               </span>
             </li>
           ))}
