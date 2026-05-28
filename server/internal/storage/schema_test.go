@@ -25,7 +25,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	for _, table := range []string{
-		"sessions", "stints", "hot_spots", "corners",
+		"sessions", "stints", "hot_spots", "turns", "straights",
 		"stint_summary", "lap_summary", "preview_samples",
 	} {
 		var n int
