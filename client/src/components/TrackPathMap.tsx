@@ -1,45 +1,35 @@
 /* Hallmark · component: track-path-map · genre: dashboard · theme: Glass
- * 3D track-path minimap. Per ADR 0008, hot-spots are pre-attributed to a
- * Turn or a Straight server-side. The marker layer then renders one hot-spot
- * per (segment, type), keeping the densest-on-corners stints readable
- * without losing per-place visibility (top-N by peak_value would drop entire
- * places; per-segment-per-type doesn't).
+ * 3D track-path minimap. The polyline can be coloured by any of the path
+ * channels the server ships (speed / brake / lateral G); pick via the
+ * `channel` prop.
  */
 import { COORDINATE_SYSTEM, OrbitView, type PickingInfo } from "@deck.gl/core";
-import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { LineLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
-import type { HotSpot, PathResponse, Straight, Turn } from "~/utils/schemas";
-import { groupHotSpotsBySegment, hotSpotTypeLabel } from "~/utils/segments";
+import type { PathResponse } from "~/utils/schemas";
+
+export type PathChannel = "speed" | "brake" | "lateral_g";
 
 interface TrackPathMapProps {
   path: PathResponse;
-  hotSpots?: HotSpot[];
-  turns?: Turn[];
-  straights?: Straight[];
+  channel?: PathChannel;
 }
 
 interface Segment {
   source: [number, number, number];
   target: [number, number, number];
-  speed: number;
+  value: number; // the channel's value at this segment's end
   lap: number | null;
   tickNS: number;
 }
 
-interface HotSpotMarker {
-  id: string;
-  pos: [number, number, number];
-  type: string;
-  label: string;
-  value: number;
-  segmentLabel: string; // "Turn 3" / "Straight 2"
-}
+export function TrackPathMap({ path, channel = "speed" }: TrackPathMapProps) {
+  const cfg = channelConfig[channel];
 
-export function TrackPathMap({ path, hotSpots, turns, straights }: TrackPathMapProps) {
-  const { segments, markers, extent } = useMemo(
-    () => buildScene(path, hotSpots ?? [], turns ?? [], straights ?? []),
-    [path, hotSpots, turns, straights],
+  const { segments, extent } = useMemo(
+    () => buildScene(path, cfg.colIndex),
+    [path, cfg.colIndex],
   );
 
   if (segments.length < 1) {
@@ -63,27 +53,12 @@ export function TrackPathMap({ path, hotSpots, turns, straights }: TrackPathMapP
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getSourcePosition: (s) => s.source,
       getTargetPosition: (s) => s.target,
-      getColor: (s) => speedToColor(s.speed),
+      getColor: (s) => valueToColor(s.value, cfg.max),
       getWidth: 3,
       widthUnits: "pixels",
       widthMinPixels: 2,
       pickable: true,
-    }),
-    new ScatterplotLayer<HotSpotMarker>({
-      id: "hot-spots",
-      data: markers,
-      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-      getPosition: (m) => m.pos,
-      getFillColor: (m) => hotSpotColor(m.type),
-      getLineColor: [255, 255, 255, 220],
-      getRadius: 6,
-      radiusUnits: "pixels",
-      radiusMinPixels: 4,
-      radiusMaxPixels: 10,
-      stroked: true,
-      lineWidthUnits: "pixels",
-      getLineWidth: 1.5,
-      pickable: true,
+      updateTriggers: { getColor: channel },
     }),
   ];
 
@@ -103,22 +78,59 @@ export function TrackPathMap({ path, hotSpots, turns, straights }: TrackPathMapP
         initialViewState={initialViewState}
         controller={{ inertia: 250 }}
         layers={layers}
-        getTooltip={tooltipFor}
+        getTooltip={(info) => tooltipFor(info, channel)}
       />
-      <Legend hz={path.sample_hz} markerCount={markers.length} />
+      <Legend hz={path.sample_hz} channel={channel} />
       <Hint />
     </div>
   );
 }
 
+// ---------- channel config ----------
+
+interface ChannelConfig {
+  label: string;
+  colIndex: number;
+  max: number;
+  legendLow: string;
+  legendHigh: string;
+  format: (v: number) => string;
+}
+
+// Column indices match the server's pathColumns order (server/internal/api/path.go).
+const channelConfig: Record<PathChannel, ChannelConfig> = {
+  speed: {
+    label: "Speed",
+    colIndex: 4,
+    max: 90,
+    legendLow: "slow",
+    legendHigh: "fast",
+    format: (v) => `${(v * 3.6).toFixed(0)} km/h`,
+  },
+  brake: {
+    label: "Brake",
+    colIndex: 6,
+    max: 1.0,
+    legendLow: "off",
+    legendHigh: "100%",
+    format: (v) => `${Math.round(v * 100)}% brake`,
+  },
+  lateral_g: {
+    label: "Lateral G",
+    colIndex: 7,
+    max: 2.0,
+    legendLow: "none",
+    legendHigh: "hard",
+    format: (v) => `${Math.abs(v).toFixed(2)} G`,
+  },
+};
+
 // ---------- scene assembly ----------
 
-// Column indices match the server's fixed pathColumns order.
 const COL_TICK_NS = 0;
 const COL_POS_X = 1;
 const COL_POS_Y = 2;
 const COL_POS_Z = 3;
-const COL_SPEED = 4;
 const COL_LAP = 5;
 
 interface PathPoint {
@@ -126,16 +138,14 @@ interface PathPoint {
   x: number;
   y: number;
   z: number;
-  speed: number;
+  channelValue: number;
   lap: number | null;
 }
 
 function buildScene(
   path: PathResponse,
-  hotSpots: HotSpot[],
-  turns: Turn[],
-  straights: Straight[],
-): { segments: Segment[]; markers: HotSpotMarker[]; extent: number } {
+  channelColIndex: number,
+): { segments: Segment[]; extent: number } {
   const pts: PathPoint[] = [];
   for (const row of path.rows) {
     const tick = row[COL_TICK_NS];
@@ -148,12 +158,12 @@ function buildScene(
       x,
       y,
       z,
-      speed: row[COL_SPEED] ?? 0,
+      channelValue: row[channelColIndex] ?? 0,
       lap: row[COL_LAP],
     });
   }
   if (pts.length < 2) {
-    return { segments: [], markers: [], extent: 1 };
+    return { segments: [], extent: 1 };
   }
 
   let minX = Infinity,
@@ -182,52 +192,23 @@ function buildScene(
     segments[i - 1] = {
       source: [a.x - cx, a.y - cy, a.z - cz],
       target: [b.x - cx, b.y - cy, b.z - cz],
-      speed: b.speed,
+      value: b.channelValue,
       lap: b.lap,
       tickNS: b.tickNS,
     };
   }
 
-  // Per ADR 0008, every hot-spot carries either turn_id or straight_id (XOR).
-  // Group via the shared utility so the marker layer + events panel stay in
-  // lock-step — both surface the same per-(segment, type) winners.
-  const grouped = groupHotSpotsBySegment(hotSpots, turns, straights);
-  const markers: HotSpotMarker[] = [];
-  for (const ev of grouped) {
-    const p = nearestPoint(pts, ev.hotSpot.peak_tick_ns);
-    if (!p) continue;
-    markers.push({
-      id: ev.hotSpot.id,
-      pos: [p.x - cx, p.y - cy, p.z - cz],
-      type: ev.hotSpot.type,
-      label: ev.hotSpot.label,
-      value: ev.hotSpot.peak_value,
-      segmentLabel: ev.segmentLabel,
-    });
-  }
-
-  return { segments, markers, extent };
-}
-
-function nearestPoint(pts: PathPoint[], tickNS: number): PathPoint | null {
-  if (pts.length === 0) return null;
-  let lo = 0;
-  let hi = pts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (pts[mid].tickNS < tickNS) lo = mid + 1;
-    else hi = mid;
-  }
-  const cand = pts[lo];
-  if (lo === 0) return cand;
-  const prev = pts[lo - 1];
-  return Math.abs(cand.tickNS - tickNS) < Math.abs(prev.tickNS - tickNS) ? cand : prev;
+  return { segments, extent };
 }
 
 // ---------- visuals ----------
 
-function speedToColor(speedMS: number): [number, number, number, number] {
-  const t = Math.min(Math.max(speedMS / 90, 0), 1);
+/**
+ * Normalised value → 5-stop cool→hot ramp. Each channel supplies its own
+ * `max`; the value is clipped to [0, 1].
+ */
+function valueToColor(raw: number, max: number): [number, number, number, number] {
+  const t = Math.min(Math.max(Math.abs(raw) / max, 0), 1);
   const stops: Array<[number, [number, number, number]]> = [
     [0.0, [40, 90, 200]],
     [0.25, [80, 200, 220]],
@@ -251,63 +232,36 @@ function speedToColor(speedMS: number): [number, number, number, number] {
   return [240, 80, 60, 255];
 }
 
-function hotSpotColor(type: string): [number, number, number, number] {
-  switch (type) {
-    case "peak_lateral_g": {
-      return [255, 200, 60, 230];
-    }
-    case "peak_brake": {
-      return [240, 80, 80, 230];
-    }
-    case "top_speed": {
-      return [80, 180, 255, 230];
-    }
-    default: {
-      return [200, 200, 200, 230];
-    }
-  }
-}
-
 // ---------- tooltip ----------
 
-function tooltipFor(info: PickingInfo): string | null {
+function tooltipFor(info: PickingInfo, channel: PathChannel): string | null {
   if (!info.object) return null;
-  if (info.layer?.id === "track-path") {
-    const seg = info.object as Segment;
-    const kmh = (seg.speed * 3.6).toFixed(0);
-    const lap = seg.lap !== null ? `Lap ${seg.lap}` : "—";
-    return `${kmh} km/h · ${lap}`;
-  }
-  if (info.layer?.id === "hot-spots") {
-    const m = info.object as HotSpotMarker;
-    return `${m.segmentLabel} · ${hotSpotTypeLabel(m.type)}\n${m.label}`;
-  }
-  return null;
+  if (info.layer?.id !== "track-path") return null;
+  const seg = info.object as Segment;
+  const cfg = channelConfig[channel];
+  const channelDisplay = cfg.format(seg.value);
+  const lap = seg.lap !== null ? `Lap ${seg.lap}` : "—";
+  return `${channelDisplay} · ${lap}`;
 }
 
 // ---------- chrome ----------
 
-function Legend({ hz, markerCount }: { hz: number; markerCount: number }) {
+function Legend({ hz, channel }: { hz: number; channel: PathChannel }) {
+  const cfg = channelConfig[channel];
   return (
-    <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-3 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
-      <div className="flex items-center gap-2">
-        <span>slow</span>
-        <span
-          aria-hidden
-          className="h-2 w-24 rounded-full"
-          style={{
-            background:
-              "linear-gradient(to right, rgb(40,90,200), rgb(80,200,220), rgb(120,220,100), rgb(240,200,60), rgb(240,80,60))",
-          }}
-        />
-        <span>fast</span>
-        <span className="tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
-      </div>
-      {markerCount > 0 && (
-        <span className="border-l border-foreground/10 pl-3 tabular-nums">
-          {markerCount} marker{markerCount === 1 ? "" : "s"}
-        </span>
-      )}
+    <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-2 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
+      <span className="font-medium text-foreground/80">{cfg.label}</span>
+      <span>{cfg.legendLow}</span>
+      <span
+        aria-hidden
+        className="h-2 w-24 rounded-full"
+        style={{
+          background:
+            "linear-gradient(to right, rgb(40,90,200), rgb(80,200,220), rgb(120,220,100), rgb(240,200,60), rgb(240,80,60))",
+        }}
+      />
+      <span>{cfg.legendHigh}</span>
+      <span className="tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
     </div>
   );
 }

@@ -4,11 +4,11 @@ import { Chip, Skeleton } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { TickPreviewChart } from "~/components/TickPreviewChart";
-import { TrackPathMap } from "~/components/TrackPathMap";
+import { TrackPathMap, type PathChannel } from "~/components/TrackPathMap";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
 import {
-  hotSpotsQuery,
   lapsQuery,
   pathQuery,
   previewQuery,
@@ -16,8 +16,7 @@ import {
   straightsQuery,
   turnsQuery,
 } from "~/utils/queries";
-import type { HotSpot, Lap, StintDetail, Straight, StintSummary, Turn } from "~/utils/schemas";
-import { groupHotSpotsBySegment, hotSpotTypeColor, hotSpotTypeLabel } from "~/utils/segments";
+import type { Lap, StintDetail, StintSummary, Turn } from "~/utils/schemas";
 
 export const Route = createFileRoute("/stints/$stintId")({
   component: StintDetailRoute,
@@ -29,7 +28,6 @@ export const Route = createFileRoute("/stints/$stintId")({
       context.queryClient.prefetchQuery(stintQuery(id)),
       context.queryClient.prefetchQuery(previewQuery(id)),
       context.queryClient.prefetchQuery(pathQuery(id)),
-      context.queryClient.prefetchQuery(hotSpotsQuery(id)),
       context.queryClient.prefetchQuery(turnsQuery(id)),
       context.queryClient.prefetchQuery(straightsQuery(id)),
       context.queryClient.prefetchQuery(lapsQuery(id)),
@@ -42,10 +40,10 @@ function StintDetailRoute() {
   const stint = useQuery(stintQuery(stintId));
   const preview = useQuery(previewQuery(stintId));
   const path = useQuery(pathQuery(stintId));
-  const hotSpots = useQuery(hotSpotsQuery(stintId));
   const turns = useQuery(turnsQuery(stintId));
   const straights = useQuery(straightsQuery(stintId));
   const laps = useQuery(lapsQuery(stintId));
+  const [channel, setChannel] = useState<PathChannel>("speed");
 
   return (
     <section className="flex flex-col gap-8">
@@ -59,16 +57,12 @@ function StintDetailRoute() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_minmax(0,20rem)]">
         <div className="flex flex-col gap-4">
-          <SectionHeading>Track path</SectionHeading>
+          <div className="flex items-center justify-between gap-3">
+            <SectionHeading>Track path</SectionHeading>
+            <ChannelPicker value={channel} onChange={setChannel} />
+          </div>
           {path.isLoading && <Skeleton className="aspect-[16/9] w-full rounded-2xl" />}
-          {path.data && (
-            <TrackPathMap
-              path={path.data}
-              hotSpots={hotSpots.data?.hot_spots}
-              turns={turns.data?.turns}
-              straights={straights.data?.straights}
-            />
-          )}
+          {path.data && <TrackPathMap path={path.data} channel={channel} />}
 
           <SectionHeading>Preview</SectionHeading>
           {preview.isLoading && <Skeleton className="h-80 w-full rounded-2xl" />}
@@ -76,12 +70,6 @@ function StintDetailRoute() {
         </div>
 
         <aside className="flex flex-col gap-4">
-          <EventsCard
-            hotSpots={hotSpots.data?.hot_spots}
-            turns={turns.data?.turns}
-            straights={straights.data?.straights}
-            isLoading={hotSpots.isLoading || turns.isLoading || straights.isLoading}
-          />
           <TurnsCard query={turns} />
           <LapsCard query={laps} />
         </aside>
@@ -246,61 +234,50 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-xs font-medium tracking-wider text-muted uppercase">{children}</h2>;
 }
 
+function ChannelPicker({
+  value,
+  onChange,
+}: {
+  value: PathChannel;
+  onChange: (next: PathChannel) => void;
+}) {
+  const options: Array<{ key: PathChannel; label: string }> = [
+    { key: "speed", label: "Speed" },
+    { key: "brake", label: "Brake" },
+    { key: "lateral_g", label: "Lat G" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Colour channel"
+      className="flex gap-0.5 rounded-xl bg-surface-secondary p-0.5 text-xs"
+    >
+      {options.map((opt) => {
+        const active = value === opt.key;
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(opt.key)}
+            className={
+              active
+                ? "rounded-lg bg-accent px-3 py-1 font-medium text-accent-foreground"
+                : "rounded-lg px-3 py-1 text-muted hover:text-foreground"
+            }
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---------- Side panel cards ----------
 
 type QueryResult<T> = ReturnType<typeof useQuery<T>>;
-
-function EventsCard({
-  hotSpots,
-  turns,
-  straights,
-  isLoading,
-}: {
-  hotSpots?: HotSpot[];
-  turns?: Turn[];
-  straights?: Straight[];
-  isLoading: boolean;
-}) {
-  const events =
-    hotSpots && turns && straights
-      ? groupHotSpotsBySegment(hotSpots, turns, straights)
-      : [];
-  return (
-    <Card title="Events" icon="lucide:flame" count={events.length}>
-      {isLoading && <ListSkeleton rows={2} />}
-      {!isLoading && events.length === 0 && (
-        <EmptyLine>No notable peaks attributed to a segment.</EmptyLine>
-      )}
-      {events.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {events.map((ev) => (
-            <li
-              key={ev.hotSpot.id}
-              className="flex items-center gap-3 rounded-xl bg-surface-secondary px-3 py-2"
-            >
-              <span
-                aria-hidden
-                className="size-2 shrink-0 rounded-full"
-                style={{ background: hotSpotTypeColor(ev.hotSpot.type) }}
-              />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-sm font-medium text-foreground">
-                  {ev.segmentLabel}
-                </span>
-                <span className="text-xs text-muted">
-                  {hotSpotTypeLabel(ev.hotSpot.type)}
-                </span>
-              </div>
-              <span className="text-xs text-foreground/80 tabular-nums">
-                {ev.hotSpot.label}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
 
 function TurnsCard({ query }: { query: QueryResult<{ turns: Turn[] }> }) {
   const turns = query.data?.turns ?? [];
