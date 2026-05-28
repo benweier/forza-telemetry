@@ -99,21 +99,35 @@ export const HotSpotSchema = v.object({
   peak_tick_ns: v.number(),
   peak_value: v.number(),
   label: v.string(),
+  // Per ADR 0008, each hot-spot belongs to exactly one Turn or one Straight
+  // (XOR enforced server-side). Both null on legacy rows, never both non-null.
+  turn_id: NullableString,
+  straight_id: NullableString,
 });
 export const HotSpotsResponseSchema = v.object({ hot_spots: v.array(HotSpotSchema) });
 
-export const CornerSchema = v.object({
+export const TurnSchema = v.object({
   id: v.string(),
-  lap_number: v.number(),
-  corner_index: v.number(),
+  turn_index: v.number(),
   started_at_ns: v.number(),
   apex_tick_ns: v.number(),
   ended_at_ns: v.number(),
   peak_curvature: v.number(),
-  peak_lateral_g: v.number(),
+  peak_delta_theta: v.number(),
   direction: v.string(),
+  shape: NullableString,
 });
-export const CornersResponseSchema = v.object({ corners: v.array(CornerSchema) });
+export const TurnsResponseSchema = v.object({ turns: v.array(TurnSchema) });
+
+export const StraightSchema = v.object({
+  id: v.string(),
+  straight_index: v.number(),
+  started_at_ns: v.number(),
+  ended_at_ns: v.number(),
+  distance_m: v.number(),
+  peak_speed_ms: NullableNumber,
+});
+export const StraightsResponseSchema = v.object({ straights: v.array(StraightSchema) });
 
 export const PreviewSampleSchema = v.object({
   second_index: v.number(),
@@ -152,6 +166,7 @@ export type StintSummary = v.InferOutput<typeof StintSummarySchema>;
 export type CarIdentity = v.InferOutput<typeof CarIdentitySchema>;
 export type Lap = v.InferOutput<typeof LapSchema>;
 export type HotSpot = v.InferOutput<typeof HotSpotSchema>;
-export type Corner = v.InferOutput<typeof CornerSchema>;
+export type Turn = v.InferOutput<typeof TurnSchema>;
+export type Straight = v.InferOutput<typeof StraightSchema>;
 export type PreviewSample = v.InferOutput<typeof PreviewSampleSchema>;
 export type PathResponse = v.InferOutput<typeof PathResponseSchema>;

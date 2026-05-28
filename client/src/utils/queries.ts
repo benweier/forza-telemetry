@@ -8,7 +8,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { fetchAndParse } from "~/utils/api";
 import {
-  CornersResponseSchema,
   HotSpotsResponseSchema,
   LapsResponseSchema,
   PathResponseSchema,
@@ -16,6 +15,8 @@ import {
   SessionDetailSchema,
   SessionsListResponseSchema,
   StintDetailSchema,
+  StraightsResponseSchema,
+  TurnsResponseSchema,
 } from "~/utils/schemas";
 
 // --- Sessions ---
@@ -52,10 +53,16 @@ export const hotSpotsQuery = (id: string) =>
     queryFn: () => fetchAndParse(`/stints/${id}/hot-spots`, HotSpotsResponseSchema),
   });
 
-export const cornersQuery = (id: string) =>
+export const turnsQuery = (id: string) =>
   queryOptions({
-    queryKey: ["stints", id, "corners"] as const,
-    queryFn: () => fetchAndParse(`/stints/${id}/corners`, CornersResponseSchema),
+    queryKey: ["stints", id, "turns"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/turns`, TurnsResponseSchema),
+  });
+
+export const straightsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["stints", id, "straights"] as const,
+    queryFn: () => fetchAndParse(`/stints/${id}/straights`, StraightsResponseSchema),
   });
 
 export const previewQuery = (id: string) =>
