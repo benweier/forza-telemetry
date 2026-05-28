@@ -10,6 +10,7 @@ import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
 import type { HotSpot, PathResponse, Straight, Turn } from "~/utils/schemas";
+import { groupHotSpotsBySegment, hotSpotTypeLabel } from "~/utils/segments";
 
 interface TrackPathMapProps {
   path: PathResponse;
@@ -188,41 +189,20 @@ function buildScene(
   }
 
   // Per ADR 0008, every hot-spot carries either turn_id or straight_id (XOR).
-  // Group by (segment_id, type) and keep the peak with the highest peak_value
-  // so each segment surfaces one marker per kind of event — densely-cornered
-  // tracks read cleanly without sacrificing per-place visibility.
-  const turnByID = new Map(turns.map((t) => [t.id, t]));
-  const straightByID = new Map(straights.map((s) => [s.id, s]));
-  const best = new Map<string, HotSpot>();
-  for (const h of hotSpots) {
-    const segmentID = h.turn_id ?? h.straight_id;
-    if (!segmentID) continue;
-    const key = `${segmentID}::${h.type}`;
-    const prev = best.get(key);
-    if (!prev || h.peak_value > prev.peak_value) {
-      best.set(key, h);
-    }
-  }
-
+  // Group via the shared utility so the marker layer + events panel stay in
+  // lock-step — both surface the same per-(segment, type) winners.
+  const grouped = groupHotSpotsBySegment(hotSpots, turns, straights);
   const markers: HotSpotMarker[] = [];
-  for (const h of best.values()) {
-    const p = nearestPoint(pts, h.peak_tick_ns);
+  for (const ev of grouped) {
+    const p = nearestPoint(pts, ev.hotSpot.peak_tick_ns);
     if (!p) continue;
-    let segmentLabel = "—";
-    if (h.turn_id) {
-      const t = turnByID.get(h.turn_id);
-      if (t) segmentLabel = `Turn ${t.turn_index}`;
-    } else if (h.straight_id) {
-      const s = straightByID.get(h.straight_id);
-      if (s) segmentLabel = `Straight ${s.straight_index}`;
-    }
     markers.push({
-      id: h.id,
+      id: ev.hotSpot.id,
       pos: [p.x - cx, p.y - cy, p.z - cz],
-      type: h.type,
-      label: h.label,
-      value: h.peak_value,
-      segmentLabel,
+      type: ev.hotSpot.type,
+      label: ev.hotSpot.label,
+      value: ev.hotSpot.peak_value,
+      segmentLabel: ev.segmentLabel,
     });
   }
 
@@ -284,23 +264,6 @@ function hotSpotColor(type: string): [number, number, number, number] {
     }
     default: {
       return [200, 200, 200, 230];
-    }
-  }
-}
-
-function hotSpotTypeLabel(t: string): string {
-  switch (t) {
-    case "peak_lateral_g": {
-      return "Lateral G peak";
-    }
-    case "peak_brake": {
-      return "Brake peak";
-    }
-    case "top_speed": {
-      return "Top speed";
-    }
-    default: {
-      return t;
     }
   }
 }

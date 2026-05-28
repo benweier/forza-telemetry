@@ -16,7 +16,8 @@ import {
   straightsQuery,
   turnsQuery,
 } from "~/utils/queries";
-import type { HotSpot, Lap, StintDetail, StintSummary, Turn } from "~/utils/schemas";
+import type { HotSpot, Lap, StintDetail, Straight, StintSummary, Turn } from "~/utils/schemas";
+import { groupHotSpotsBySegment, hotSpotTypeColor, hotSpotTypeLabel } from "~/utils/segments";
 
 export const Route = createFileRoute("/stints/$stintId")({
   component: StintDetailRoute,
@@ -75,7 +76,12 @@ function StintDetailRoute() {
         </div>
 
         <aside className="flex flex-col gap-4">
-          <HotSpotsCard query={hotSpots} />
+          <EventsCard
+            hotSpots={hotSpots.data?.hot_spots}
+            turns={turns.data?.turns}
+            straights={straights.data?.straights}
+            isLoading={hotSpots.isLoading || turns.isLoading || straights.isLoading}
+          />
           <TurnsCard query={turns} />
           <LapsCard query={laps} />
         </aside>
@@ -244,27 +250,49 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 type QueryResult<T> = ReturnType<typeof useQuery<T>>;
 
-function HotSpotsCard({ query }: { query: QueryResult<{ hot_spots: HotSpot[] }> }) {
-  const hot = query.data?.hot_spots ?? [];
+function EventsCard({
+  hotSpots,
+  turns,
+  straights,
+  isLoading,
+}: {
+  hotSpots?: HotSpot[];
+  turns?: Turn[];
+  straights?: Straight[];
+  isLoading: boolean;
+}) {
+  const events =
+    hotSpots && turns && straights
+      ? groupHotSpotsBySegment(hotSpots, turns, straights)
+      : [];
   return (
-    <Card title="Hot-spots" icon="lucide:flame" count={hot.length}>
-      {query.isLoading && <ListSkeleton rows={2} />}
-      {!query.isLoading && hot.length === 0 && (
-        <EmptyLine>No peaks above default thresholds.</EmptyLine>
+    <Card title="Events" icon="lucide:flame" count={events.length}>
+      {isLoading && <ListSkeleton rows={2} />}
+      {!isLoading && events.length === 0 && (
+        <EmptyLine>No notable peaks attributed to a segment.</EmptyLine>
       )}
-      {hot.length > 0 && (
+      {events.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {hot.map((h) => (
+          {events.map((ev) => (
             <li
-              key={h.id}
-              className="flex items-center justify-between gap-3 rounded-xl bg-surface-secondary px-3 py-2"
+              key={ev.hotSpot.id}
+              className="flex items-center gap-3 rounded-xl bg-surface-secondary px-3 py-2"
             >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-sm font-medium text-foreground">{h.label}</span>
-                <span className="text-xs text-muted">{hotSpotTypeLabel(h.type)}</span>
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-full"
+                style={{ background: hotSpotTypeColor(ev.hotSpot.type) }}
+              />
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-sm font-medium text-foreground">
+                  {ev.segmentLabel}
+                </span>
+                <span className="text-xs text-muted">
+                  {hotSpotTypeLabel(ev.hotSpot.type)}
+                </span>
               </div>
-              <span className="text-xs text-muted tabular-nums">
-                {formatDurationNS(h.started_at_ns, h.ended_at_ns)}
+              <span className="text-xs text-foreground/80 tabular-nums">
+                {ev.hotSpot.label}
               </span>
             </li>
           ))}
@@ -381,19 +409,3 @@ function ListSkeleton({ rows }: { rows: number }) {
   );
 }
 
-function hotSpotTypeLabel(t: string) {
-  switch (t) {
-    case "peak_lateral_g": {
-      return "Lateral G peak";
-    }
-    case "peak_brake": {
-      return "Brake peak";
-    }
-    case "top_speed": {
-      return "Top speed";
-    }
-    default: {
-      return t;
-    }
-  }
-}
