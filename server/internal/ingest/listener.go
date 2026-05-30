@@ -16,6 +16,7 @@ import (
 	"github.com/benweier/forza-telemetry/server/internal/ingest/parser"
 	"github.com/benweier/forza-telemetry/server/internal/stream"
 	"github.com/benweier/forza-telemetry/server/internal/tick"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const readBufSize = 2048
@@ -27,7 +28,7 @@ type Listener struct {
 	registry   *parser.Registry
 	broker     *stream.Broker
 	logger     *slog.Logger
-	captureLog *os.File
+	captureLog *lumberjack.Logger
 
 	mu       sync.Mutex
 	prevTick tick.Tick
@@ -46,9 +47,15 @@ func NewListener(cfg config.IngestConfig, broker *stream.Broker, logger *slog.Lo
 		if err := os.MkdirAll(filepath.Dir(cfg.FH6CaptureLog), 0o755); err != nil {
 			return nil, fmt.Errorf("create fh6 capture dir: %w", err)
 		}
-		f, err := os.OpenFile(cfg.FH6CaptureLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("open fh6 capture log: %w", err)
+		// lumberjack rotates the capture log so it can't grow unbounded
+		// (~78 MB/hour of raw hex at 60Hz). It is an io.WriteCloser, so it
+		// drops straight into the parser's capture writer and the Close below.
+		f := &lumberjack.Logger{
+			Filename:   cfg.FH6CaptureLog,
+			MaxSize:    100, // megabytes before rotating
+			MaxBackups: 5,   // rotated files retained
+			MaxAge:     14,  // days retained
+			Compress:   true,
 		}
 		l.captureLog = f
 		reg.Register(parser.FH6PacketSize, parser.NewFH6Dash(f))

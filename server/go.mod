@@ -11,6 +11,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.4
 	github.com/parquet-go/parquet-go v0.30.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
