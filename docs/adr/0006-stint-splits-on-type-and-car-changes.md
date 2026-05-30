@@ -1,5 +1,15 @@
 # Stint boundaries split on Stint Type and Car changes
 
+> **Revision (post-implementation):** the discard criteria were widened beyond
+> the original sub-2s rule. A closed Stint is now also discarded if its **Stint
+> Type** is `idle` (menus / loading / pause carry no analysable telemetry) or
+> if it never saw a real **Car** (`car_ordinal` stays 0 — a session-opened-but-
+> -no-gameplay artifact). Splitting still happens on every type/car transition
+> as below; idle stints are simply not *persisted*. A one-time idempotent
+> startup sweep removes idle / no-car stints (plus their child rows and Parquet
+> files) left in the DB by older builds. See `storage/cleanup.go` and
+> `discardCause` in `storage/writer.go`.
+
 A **Stint** ends on any of: (a) packet-arrival gap of ≥ 10 seconds, (b) **Stint Type** transition (e.g. free-roam → race start), (c) **Car** change. Stints shorter than 2 seconds are discarded as noise.
 
 This guarantees every Stint has exactly one Stint Type and one Car for its full duration — Stint Type and Car are invariants of the Stint, not properties that vary inside it.

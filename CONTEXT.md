@@ -9,7 +9,7 @@ The outer container for one continuous arrival of Data Out packets — typically
 _Avoid_: Run, capture, recording.
 
 **Stint**:
-A contiguous span of in-car driving inside a **Session**, bounded by: (a) a packet-arrival gap of ≥ 10 seconds, (b) a change in **Stint Type** (e.g. free-roam → race start), or (c) a change in **Car**. Stints shorter than 2 seconds are discarded as noise. Has exactly one **Stint Type** and one **Car** for its entire duration. A **Session** contains many **Stints**.
+A contiguous span of in-car driving inside a **Session**, bounded by: (a) a packet-arrival gap of ≥ 10 seconds, (b) a change in **Stint Type** (e.g. free-roam → race start), or (c) a change in **Car**. Stints shorter than 2 seconds are discarded as noise; so are `idle` Stints and Stints that never saw a real **Car** (`car_ordinal` 0) — only `freeroam` / `sprint` / `circuit` Stints with a known **Car** are persisted (see ADR 0006). Has exactly one **Stint Type** and one **Car** for its entire duration. A **Session** contains many **Stints**.
 _Avoid_: Segment, drive, leg.
 
 **Lap**:
@@ -25,7 +25,7 @@ The raw UDP datagram as it arrives from Forza's Data Out. Strictly the wire-form
 _Avoid_: Tick, frame, message.
 
 **Stint Type**:
-An automatically-assigned classification of a **Stint** based on telemetry-only heuristics. Initial values: `circuit` (lap-based race), `sprint` (timed event with no laps), `freeroam` (in-car driving with no active event), `idle` (paused/menu/loading).
+An automatically-assigned classification of a **Stint** based on telemetry-only heuristics. Initial values: `circuit` (lap-based race), `sprint` (timed event with no laps), `freeroam` (in-car driving with no active event), `idle` (paused/menu/loading). `idle` still drives Stint splitting (so race time never merges with menu time) but `idle` Stints are not persisted — only freeroam/sprint/circuit reach the DB.
 _Avoid_: Mode, category (those are for user-applied tags).
 
 **Tag**:
