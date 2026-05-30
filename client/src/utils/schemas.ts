@@ -130,6 +130,16 @@ export const PreviewSampleSchema = v.object({
 });
 export const PreviewResponseSchema = v.object({ samples: v.array(PreviewSampleSchema) });
 
+// /stints/{id}/ticks — column-oriented full-rate (60Hz) series for a ≤60s
+// window. `columns[0]` is always `server_recv_ns`; the rest are the requested
+// channels in order. Each `rows` entry is one tick aligned to `columns`.
+export const TicksResponseSchema = v.object({
+  columns: v.array(v.string()),
+  rows: v.array(v.array(v.nullable(v.number()))),
+  from_ns: v.number(),
+  to_ns: v.number(),
+});
+
 // /stints/{id}/path — column-oriented downsampled XYZ + speed for 3D rendering.
 // Columns are fixed server-side: [server_recv_ns, pos_x, pos_y, pos_z, speed_ms].
 // `step` is the parquet row stride; `sample_hz` is 60 / step.
@@ -154,3 +164,4 @@ export type Turn = v.InferOutput<typeof TurnSchema>;
 export type Straight = v.InferOutput<typeof StraightSchema>;
 export type PreviewSample = v.InferOutput<typeof PreviewSampleSchema>;
 export type PathResponse = v.InferOutput<typeof PathResponseSchema>;
+export type TicksResponse = v.InferOutput<typeof TicksResponseSchema>;

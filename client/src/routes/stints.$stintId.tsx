@@ -14,9 +14,15 @@ import {
   previewQuery,
   stintQuery,
   straightsQuery,
+  ticksQuery,
   turnsQuery,
 } from "~/utils/queries";
 import type { Lap, StintDetail, StintSummary, Turn } from "~/utils/schemas";
+
+// Channels the preview chart upgrades to at full rate; mirrors the 1Hz preview's
+// speed / lateral-G / brake series. Server caps the tick window at 60s.
+const TICK_CHANNELS = ["speed_ms", "lateral_g", "brake_pct"];
+const MAX_TICK_WINDOW_NS = 60_000_000_000;
 
 export const Route = createFileRoute("/stints/$stintId")({
   component: StintDetailRoute,
@@ -45,6 +51,16 @@ function StintDetailRoute() {
   const laps = useQuery(lapsQuery(stintId));
   const [channel, setChannel] = useState<PathChannel>("speed");
 
+  // Drag-zoom on the preview selects a window; ≤60s windows fetch the full-rate
+  // 60Hz series (server caps the window at 60s), which replaces the 1Hz line.
+  const [window, setWindow] = useState<{ from: number; to: number } | null>(null);
+  const windowTooLong = window !== null && window.to - window.from > MAX_TICK_WINDOW_NS;
+  const ticks = useQuery({
+    ...ticksQuery(stintId, window?.from ?? 0, window?.to ?? 0, TICK_CHANNELS),
+    enabled: window !== null && !windowTooLong,
+  });
+  const detail = window !== null && !windowTooLong ? ticks.data : undefined;
+
   return (
     <section className="flex flex-col gap-8">
       <Breadcrumb stintId={stintId} sessionId={stint.data?.session_id} />
@@ -66,7 +82,18 @@ function StintDetailRoute() {
 
           <SectionHeading>Preview</SectionHeading>
           {preview.isLoading && <Skeleton className="h-80 w-full rounded-2xl" />}
-          {preview.data && <TickPreviewChart samples={preview.data.samples} />}
+          {preview.data && stint.data && (
+            <TickPreviewChart
+              samples={preview.data.samples}
+              startedAtNs={stint.data.started_at_ns}
+              detail={detail}
+              isFetchingDetail={ticks.isFetching && !windowTooLong}
+              onWindowSelect={(from, to) => setWindow({ from, to })}
+              isZoomed={window !== null}
+              onReset={() => setWindow(null)}
+              note={windowTooLong ? "Selection too long — drag a ≤60s window for full rate." : undefined}
+            />
+          )}
         </div>
 
         <aside className="flex flex-col gap-4">

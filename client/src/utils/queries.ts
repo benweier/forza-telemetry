@@ -15,6 +15,7 @@ import {
   SessionsListResponseSchema,
   StintDetailSchema,
   StraightsResponseSchema,
+  TicksResponseSchema,
   TurnsResponseSchema,
 } from "~/utils/schemas";
 
@@ -62,6 +63,22 @@ export const previewQuery = (id: string) =>
   queryOptions({
     queryKey: ["stints", id, "preview"] as const,
     queryFn: () => fetchAndParse(`/stints/${id}/preview`, PreviewResponseSchema),
+  });
+
+// Full-rate (60Hz) tick window for the preview chart's drag-zoom. The server
+// caps the window at 60s and whitelists channels; callers must pre-check the
+// span. `from`/`to` are absolute server_recv nanoseconds.
+export const ticksQuery = (id: string, from: number, to: number, channels: string[]) =>
+  queryOptions({
+    queryKey: ["stints", id, "ticks", from, to, channels.join(",")] as const,
+    queryFn: () => {
+      const qs = new URLSearchParams({
+        from: String(from),
+        to: String(to),
+        channels: channels.join(","),
+      });
+      return fetchAndParse(`/stints/${id}/ticks?${qs}`, TicksResponseSchema);
+    },
   });
 
 // Downsampled 3D path for the track-path minimap. `step` defaults to 6 on the
