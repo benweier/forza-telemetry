@@ -1,19 +1,14 @@
-/// <reference types="vite/client" />
-import type { QueryClient } from "@tanstack/react-query";
+import { Toast } from "@heroui/react";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import {
-  HeadContent,
-  Outlet,
-  Scripts,
-  createRootRouteWithContext,
-} from "@tanstack/react-router";
+import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import type * as React from "react";
 import { AppShell } from "~/components/AppSidebar";
 import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary";
 import { NotFound } from "~/components/NotFound";
 import appCss from "~/styles/app.css?url";
 import { seo } from "~/utils/seo";
+import type { QueryClient } from "@tanstack/react-query";
+import type * as React from "react";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -77,8 +72,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="font-sans antialiased text-foreground bg-background">
+      <body className="bg-background font-sans text-foreground antialiased">
         {children}
+        <Toast.Provider placement="bottom end" />
         <TanStackRouterDevtools position="bottom-right" />
         <ReactQueryDevtools buttonPosition="bottom-left" />
         <Scripts />

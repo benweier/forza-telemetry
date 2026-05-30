@@ -1,17 +1,18 @@
+import { EmptyState } from "@heroui-pro/react";
 /* Hallmark · component: session-detail · genre: dashboard · theme: Glass */
 import { Chip, Skeleton } from "@heroui/react";
-import { EmptyState } from "@heroui-pro/react";
-import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@iconify/react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { DownsampleButton, PinToggle } from "~/components/SessionActions";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
 import { sessionQuery } from "~/utils/queries";
 import type { StintListRow } from "~/utils/schemas";
 
 export const Route = createFileRoute("/sessions/$sessionId")({
+  component: SessionDetailRoute,
   loader: ({ context, params }) =>
     context.queryClient.prefetchQuery(sessionQuery(params.sessionId)),
-  component: SessionDetailRoute,
 });
 
 function SessionDetailRoute() {
@@ -21,10 +22,12 @@ function SessionDetailRoute() {
   return (
     <section className="flex flex-col gap-8">
       <nav aria-label="Breadcrumb" className="text-sm text-muted">
-        <Link to="/sessions" className="no-underline text-muted hover:text-foreground">
+        <Link to="/sessions" className="text-muted no-underline hover:text-foreground">
           Sessions
         </Link>
-        <span aria-hidden className="px-2">/</span>
+        <span aria-hidden className="px-2">
+          /
+        </span>
         <span className="font-mono text-foreground">{sessionId}</span>
       </nav>
 
@@ -62,19 +65,24 @@ function SessionHeader({
   const inProgress = endedAtNS === null;
   return (
     <header className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted">
-          Session
-        </span>
-        {inProgress && (
-          <Chip size="sm" variant="soft" color="success">Live</Chip>
-        )}
-        {pinned && (
-          <Chip size="sm" variant="soft" color="warning">Pinned</Chip>
-        )}
-        {downsampled && (
-          <Chip size="sm" variant="soft">Downsampled</Chip>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">Session</span>
+          {inProgress && (
+            <Chip size="sm" variant="soft" color="success">
+              Live
+            </Chip>
+          )}
+          {downsampled && (
+            <Chip size="sm" variant="soft">
+              Downsampled
+            </Chip>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <DownsampleButton id={sessionId} downsampled={downsampled} />
+          <PinToggle id={sessionId} pinned={pinned} />
+        </div>
       </div>
       <h1 className="font-mono text-2xl font-semibold tracking-tight text-foreground">
         {sessionId}
@@ -107,8 +115,7 @@ function StintsSection({ stints }: { stints: StintListRow[] }) {
             </EmptyState.Media>
             <EmptyState.Title>No stints in this session</EmptyState.Title>
             <EmptyState.Description>
-              Sub-2-second stints are discarded; a session with only menu time will
-              appear empty.
+              Sub-2-second stints are discarded; a session with only menu time will appear empty.
             </EmptyState.Description>
           </EmptyState.Header>
         </EmptyState>
@@ -117,10 +124,8 @@ function StintsSection({ stints }: { stints: StintListRow[] }) {
   }
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-xs font-medium uppercase tracking-wider text-muted">
-        Stints
-      </h2>
-      <ul className="flex flex-col gap-2" role="list">
+      <h2 className="text-xs font-medium tracking-wider text-muted uppercase">Stints</h2>
+      <ul className="flex flex-col gap-2">
         {stints.map((s) => (
           <li key={s.id}>
             <StintRow stint={s} />
@@ -137,28 +142,32 @@ function StintRow({ stint }: { stint: StintListRow }) {
     <Link
       to="/stints/$stintId"
       params={{ stintId: stint.id }}
-      className="group flex items-center gap-4 rounded-2xl bg-surface px-5 py-4 no-underline text-foreground shadow-surface transition-colors hover:bg-surface-hover"
+      className="group flex items-center gap-4 rounded-2xl bg-surface px-5 py-4 text-foreground no-underline shadow-surface transition-colors hover:bg-surface-hover"
     >
       <div
         aria-hidden
-        className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft font-mono text-sm font-medium tabular-nums text-accent-soft-foreground"
+        className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft font-mono text-sm font-medium text-accent-soft-foreground tabular-nums"
       >
         {stint.ordinal.toString().padStart(2, "0")}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-center gap-2">
           {stint.stint_type ? (
-            <Chip size="sm" variant="soft">{stint.stint_type}</Chip>
+            <Chip size="sm" variant="soft">
+              {stint.stint_type}
+            </Chip>
           ) : (
-            <Chip size="sm" variant="soft">pending</Chip>
+            <Chip size="sm" variant="soft">
+              pending
+            </Chip>
           )}
           {stint.car_ordinal !== null && (
-            <span className="text-xs text-muted tabular-nums">
-              car #{stint.car_ordinal}
-            </span>
+            <span className="text-xs text-muted tabular-nums">car #{stint.car_ordinal}</span>
           )}
           {inProgress && (
-            <Chip size="sm" variant="soft" color="success">Live</Chip>
+            <Chip size="sm" variant="soft" color="success">
+              Live
+            </Chip>
           )}
         </div>
         <span className="text-xs text-muted">
@@ -167,7 +176,7 @@ function StintRow({ stint }: { stint: StintListRow }) {
         </span>
       </div>
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-sm font-medium tabular-nums text-foreground">
+        <span className="text-sm font-medium text-foreground tabular-nums">
           {formatCount(stint.tick_count)}
         </span>
         <span className="text-xs text-muted">ticks</span>
@@ -197,12 +206,9 @@ function DetailError({ sessionId }: { sessionId: string }) {
   return (
     <div className="rounded-2xl bg-surface p-8 text-center shadow-surface">
       <Icon icon="lucide:circle-alert" className="mx-auto size-6 text-danger" />
-      <h2 className="mt-3 text-base font-semibold text-foreground">
-        Couldn't load session
-      </h2>
+      <h2 className="mt-3 text-base font-semibold text-foreground">Couldn't load session</h2>
       <p className="mt-1 text-sm text-muted">
-        <span className="font-mono">{sessionId}</span> may not exist, or the server is
-        unreachable.
+        <span className="font-mono">{sessionId}</span> may not exist, or the server is unreachable.
       </p>
     </div>
   );
