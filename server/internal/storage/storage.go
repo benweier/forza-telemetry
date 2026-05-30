@@ -45,7 +45,15 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{dataDir: dataDir, db: db, logger: logger.With("component", "storage")}, nil
+	store := &Store{dataDir: dataDir, db: db, logger: logger.With("component", "storage")}
+	// Drop any polluted stints (idle / no-car) persisted by an older build.
+	// Idempotent and runs before any Writer opens — the DuckDB single-writer
+	// lock means nothing else can be mutating stints here.
+	if err := sweepPollutedStints(db, store.logger); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("sweep polluted stints: %w", err)
+	}
+	return store, nil
 }
 
 // HotPath returns the absolute Parquet path for a hot Stint.

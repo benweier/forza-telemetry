@@ -202,14 +202,19 @@ func (w *Writer) closeStint(reason string) error {
 	}
 
 	duration := time.Duration(cur.lastTickNS - cur.startedAtNS)
-	if duration < w.minDuration {
-		if err := w.discardStint(cur, duration, reason); err != nil && closeErr == nil {
+	stintType := resolveStintType(cur.category, cur.lapMax-cur.lapMin)
+
+	// Discard noise before persisting. Idle stints (menus / loading / pause)
+	// and stints that never saw a real Car (CarOrdinal stays 0) carry no
+	// analysable telemetry and only pollute the history. Each routes to the
+	// same row+parquet removal as the sub-min case — and crucially runs before
+	// aggregateStint, so no child rows (turns / summaries) exist yet to orphan.
+	if cause := discardCause(duration, w.minDuration, cur.category, cur.carOrdinal); cause != "" {
+		if err := w.discardStint(cur, duration, cause); err != nil && closeErr == nil {
 			closeErr = err
 		}
 		return closeErr
 	}
-
-	stintType := resolveStintType(cur.category, cur.lapMax-cur.lapMin)
 	if _, err := w.store.db.Exec(
 		`UPDATE stints
 		 SET ended_at_ns = ?, tick_count = ?,
@@ -264,7 +269,7 @@ func (w *Writer) closeStint(reason string) error {
 	return closeErr
 }
 
-func (w *Writer) discardStint(cur *stintState, duration time.Duration, reason string) error {
+func (w *Writer) discardStint(cur *stintState, duration time.Duration, cause string) error {
 	if _, err := w.store.db.Exec(
 		`DELETE FROM stints WHERE id = ?`,
 		stintRowID(w.sessionID, cur.ordinal),
@@ -274,13 +279,29 @@ func (w *Writer) discardStint(cur *stintState, duration time.Duration, reason st
 	if err := os.Remove(cur.path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove short stint parquet: %w", err)
 	}
-	w.logger.Info("stint discarded (sub-min duration)",
+	w.logger.Info("stint discarded",
 		"stint", cur.id,
-		"reason", reason,
+		"cause", cause,
 		"ticks", cur.tickCount,
 		"duration_ms", duration.Milliseconds(),
 	)
 	return nil
+}
+
+// discardCause returns a non-empty reason a freshly-closed stint should be
+// dropped rather than persisted, or "" to keep it. Order is cheapest-first;
+// the returned string is purely for the discard log line.
+func discardCause(duration, minDuration time.Duration, cat stintCategory, carOrdinal int32) string {
+	if duration < minDuration {
+		return "sub-min duration"
+	}
+	if cat == categoryIdle {
+		return "idle"
+	}
+	if carOrdinal == 0 {
+		return "no car"
+	}
+	return ""
 }
 
 // shutdown is the deferred cleanup path; logs but does not propagate errors,

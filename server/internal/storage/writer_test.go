@@ -31,14 +31,15 @@ func TestWriterGapSplit(t *testing.T) {
 	defer cancel()
 
 	base := int64(0)
-	// Stint 1: 5 ticks across 2.5s.
+	// Stint 1: 5 freeroam ticks across 2.5s. Freeroam (not idle) + a real car
+	// so the stint is persisted under the idle/no-car discard policy.
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 	// 15s gap (> 10s threshold) → split.
 	base += int64(15 * time.Second)
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 
 	waitForStints(t, store, writer.sessionID, 2)
@@ -67,15 +68,17 @@ func TestWriterTypeSplit(t *testing.T) {
 	writer, sub, done, cancel := startWriter(t, store)
 	defer cancel()
 
-	// 5 idle ticks (IsRaceOn=false) over 2.5s, then 5 freeroam ticks over 2.5s,
-	// adjacent (no gap). Type change must split into 2 stints.
+	// 5 freeroam ticks over 2.5s, then 5 race ticks over 2.5s, adjacent (no
+	// gap). Both categories persist (unlike idle), so the type-change split is
+	// observable as 2 stored stints. (Idle's non-persistence is covered by
+	// TestWriterDiscardsIdleAndNoCar.)
 	base := int64(0)
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: false}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 	base += 5 * int64(500*time.Millisecond)
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, currentRaceTime: 10}))
 	}
 
 	waitForStints(t, store, writer.sessionID, 2)
@@ -87,11 +90,47 @@ func TestWriterTypeSplit(t *testing.T) {
 	if len(stints) != 2 {
 		t.Fatalf("want 2 stints, got %d", len(stints))
 	}
-	wantTypes := []string{"idle", "freeroam"}
+	wantTypes := []string{"freeroam", "sprint"}
 	for i, s := range stints {
 		if s.stintType == nil || *s.stintType != wantTypes[i] {
 			t.Errorf("stint %d: type want %q got %v", i, wantTypes[i], s.stintType)
 		}
+	}
+}
+
+func TestWriterDiscardsIdleAndNoCar(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	// Block A: idle (IsRaceOn=false) with a real car — discarded for being idle.
+	base := int64(0)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: false, carOrdinal: 100}))
+	}
+	// Block B: 15s gap then freeroam with no car (CarOrdinal 0) — discarded for
+	// having no car. makeTick defaults a zero ordinal to 123, so pass it through
+	// a tickOpts sentinel of -1 mapped to 0 below.
+	base += int64(15 * time.Second)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, carOrdinal: noCarSentinel}))
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	var n int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.sessionID,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("idle and no-car stints must not persist, got %d rows", n)
 	}
 }
 
@@ -102,13 +141,14 @@ func TestWriterCarSplit(t *testing.T) {
 	writer, sub, done, cancel := startWriter(t, store)
 	defer cancel()
 
+	// Race ticks (persisted) so the car-change split is observable as 2 rows.
 	base := int64(0)
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{carOrdinal: 100}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, currentRaceTime: 10, carOrdinal: 100}))
 	}
 	base += 5 * int64(500*time.Millisecond)
 	for i := 0; i < 5; i++ {
-		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{carOrdinal: 200}))
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, currentRaceTime: 10, carOrdinal: 200}))
 	}
 
 	waitForStints(t, store, writer.sessionID, 2)
@@ -371,8 +411,8 @@ func TestWriterEmitsAggregates(t *testing.T) {
 			CarClass:            4,
 			CarPerformanceIndex: 600,
 			Gear:                gear,
-			Speed:               10 + float32(i)/2,                 // grows 10 -> 50
-			DistanceTraveled:    float32(i) * 1.0,                  // grows 0 -> 80
+			Speed:               10 + float32(i)/2,                              // grows 10 -> 50
+			DistanceTraveled:    float32(i) * 1.0,                               // grows 0 -> 80
 			LateralG:            float32(0.4 + float64(i)/float64(total-1)*0.7), // 0.4 -> 1.1
 			LongitudinalG:       0.2,
 			BrakePct:            float32(i) / float32(total) * 0.9, // 0 -> ~0.9
@@ -497,10 +537,17 @@ type tickOpts struct {
 	longitudinalG   float32
 }
 
+// noCarSentinel lets a test request a genuine CarOrdinal of 0 (makeTick
+// otherwise defaults an unset ordinal to a real car for convenience).
+const noCarSentinel int32 = -1
+
 func makeTick(serverRecvNS int64, o tickOpts) *tick.Tick {
 	car := o.carOrdinal
-	if car == 0 {
+	switch car {
+	case 0:
 		car = 123
+	case noCarSentinel:
+		car = 0
 	}
 	return &tick.Tick{
 		ServerRecvNS:        serverRecvNS,
