@@ -83,3 +83,21 @@ func sweepPollutedStints(db *sql.DB, logger *slog.Logger) error {
 	logger.Info("swept polluted stints", "count", len(victims))
 	return nil
 }
+
+// sweepEmptySessions deletes session rows that have no stints. Run at startup
+// after sweepPollutedStints and before NewWriter creates the active session,
+// so any zero-stint session here is genuinely abandoned — it only ever held
+// idle/no-car stints (just swept) or never produced one. Idempotent.
+func sweepEmptySessions(db *sql.DB, logger *slog.Logger) error {
+	res, err := db.Exec(
+		`DELETE FROM sessions
+		 WHERE NOT EXISTS (SELECT 1 FROM stints WHERE stints.session_id = sessions.id)`,
+	)
+	if err != nil {
+		return fmt.Errorf("delete empty sessions: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		logger.Info("swept empty sessions", "count", n)
+	}
+	return nil
+}

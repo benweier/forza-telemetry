@@ -128,3 +128,37 @@ func TestDiscardCause(t *testing.T) {
 		})
 	}
 }
+
+func TestSweepEmptySessions(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.db.Exec(`INSERT INTO sessions (id, started_at_ns) VALUES ('empty', 0), ('full', 0)`); err != nil {
+		t.Fatalf("insert sessions: %v", err)
+	}
+	car := int32(1651)
+	// 'full' gets a stint and must survive; 'empty' has none.
+	if _, err := s.db.Exec(
+		`INSERT INTO stints (id, session_id, ordinal, started_at_ns, tick_count, stint_type, car_ordinal, parquet_path)
+		 VALUES ('full_0001', 'full', 1, 0, 10, 'sprint', ?, 'x.parquet')`, car,
+	); err != nil {
+		t.Fatalf("insert stint for full: %v", err)
+	}
+
+	if err := sweepEmptySessions(s.db, s.logger); err != nil {
+		t.Fatalf("sweep empty sessions: %v", err)
+	}
+
+	var hasEmpty, hasFull int
+	s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = 'empty'`).Scan(&hasEmpty)
+	s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = 'full'`).Scan(&hasFull)
+	if hasEmpty != 0 {
+		t.Error("empty session must be removed")
+	}
+	if hasFull != 1 {
+		t.Error("session with a stint must survive")
+	}
+
+	// Idempotent.
+	if err := sweepEmptySessions(s.db, s.logger); err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+}

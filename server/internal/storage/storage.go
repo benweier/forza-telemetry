@@ -53,6 +53,12 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("sweep polluted stints: %w", err)
 	}
+	// Then drop sessions left empty (only ever held now-swept idle/no-car
+	// stints). Runs before NewWriter, so no live session is at risk.
+	if err := sweepEmptySessions(db, store.logger); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("sweep empty sessions: %w", err)
+	}
 	return store, nil
 }
 
