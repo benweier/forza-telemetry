@@ -3,6 +3,7 @@ import { Chip } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { Sparkline } from "~/components/Sparkline";
 import { formatCount } from "~/utils/format";
 import { useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
@@ -43,12 +44,8 @@ function LiveRoute() {
     <section className="flex flex-col gap-8">
       <header className="flex items-baseline justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted">
-            Realtime
-          </span>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Live HUD
-          </h1>
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">Realtime</span>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Live HUD</h1>
         </div>
         <StatusPill connected={connected} fresh={fresh} />
       </header>
@@ -64,7 +61,7 @@ function StatusPill({ connected, fresh }: { connected: boolean; fresh: boolean }
     return (
       <Chip size="sm" variant="soft" color="success">
         <span className="flex items-center gap-1.5">
-          <span aria-hidden className="size-1.5 rounded-full bg-success animate-pulse" />
+          <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-success" />
           Live
         </span>
       </Chip>
@@ -97,9 +94,9 @@ function WaitingPanel({ connected }: { connected: boolean }) {
         <h2 className="text-xl font-semibold tracking-tight text-foreground">
           {connected ? "Waiting for telemetry" : "Connecting…"}
         </h2>
-        <p className="text-sm text-muted text-pretty">
-          Open Forza Horizon, enable Data Out under HUD settings, point the IP at this
-          host on UDP 7100. Frames will appear here as soon as the game starts streaming.
+        <p className="text-sm text-pretty text-muted">
+          Open Forza Horizon, enable Data Out under HUD settings, point the IP at this host on UDP
+          7100. Frames will appear here as soon as the game starts streaming.
         </p>
       </div>
     </div>
@@ -126,6 +123,23 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
           <InputBar label="Throttle" value={tick.tp ?? 0} tone="success" />
           <InputBar label="Brake" value={tick.bp ?? 0} tone="danger" />
         </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Sparkline
+            label="Speed"
+            unit="km/h"
+            colorVar="--accent"
+            accessor={(t) => (t.sp ?? 0) * 3.6}
+            format={(v) => `${Math.round(v)}`}
+          />
+          <Sparkline
+            label="Lateral G"
+            unit="G"
+            colorVar="--warning"
+            signed
+            accessor={(t) => t.lg ?? 0}
+            format={(v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`}
+          />
+        </div>
       </div>
 
       <aside className="flex flex-col gap-4">
@@ -136,25 +150,15 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
   );
 }
 
-function SpeedCard({
-  kmh,
-  gear,
-  fresh,
-}: {
-  kmh: number;
-  gear: number;
-  fresh: boolean;
-}) {
+function SpeedCard({ kmh, gear, fresh }: { kmh: number; gear: number; fresh: boolean }) {
   return (
     <div className="rounded-2xl bg-surface p-6 shadow-surface">
       <div className="flex items-end justify-between gap-6">
         <div className="flex flex-col">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted">
-            Speed
-          </span>
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">Speed</span>
           <div className="flex items-baseline gap-2 leading-none">
             <span
-              className="text-7xl font-semibold tabular-nums text-foreground tracking-tight"
+              className="text-7xl font-semibold tracking-tight text-foreground tabular-nums"
               style={{ opacity: fresh ? 1 : 0.5 }}
             >
               {Math.round(kmh)}
@@ -163,11 +167,9 @@ function SpeedCard({
           </div>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted">
-            Gear
-          </span>
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">Gear</span>
           <span
-            className="text-5xl font-semibold tabular-nums text-foreground leading-none"
+            className="text-5xl leading-none font-semibold text-foreground tabular-nums"
             style={{ opacity: fresh ? 1 : 0.5 }}
           >
             {gear === 0 ? "N" : gear === 11 ? "R" : gear}
@@ -193,11 +195,15 @@ function RpmBar({
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-surface p-5 shadow-surface">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted">
-          RPM
-        </span>
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">RPM</span>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-semibold tabular-nums text-foreground">
+          <span
+            className={
+              overRedline
+                ? "animate-pulse text-xl font-semibold text-danger tabular-nums"
+                : "text-xl font-semibold text-foreground tabular-nums"
+            }
+          >
             {formatCount(Math.round(rpm))}
           </span>
           {rpmMax > 0 && (
@@ -209,10 +215,15 @@ function RpmBar({
       </div>
       <div className="relative h-2.5 overflow-hidden rounded-full bg-surface-secondary">
         <div
-          className="h-full rounded-full transition-[width] duration-100"
+          className={
+            overRedline
+              ? "h-full animate-pulse rounded-full transition-[width] duration-100"
+              : "h-full rounded-full transition-[width] duration-100"
+          }
           style={{
             width: `${pct * 100}%`,
             background: overRedline ? "var(--danger)" : "var(--accent)",
+            boxShadow: overRedline ? "0 0 12px var(--danger)" : undefined,
           }}
         />
         <span
@@ -238,10 +249,8 @@ function InputBar({
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-surface p-5 shadow-surface">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted">
-          {label}
-        </span>
-        <span className="text-base font-semibold tabular-nums text-foreground">
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">{label}</span>
+        <span className="text-base font-semibold text-foreground tabular-nums">
           {Math.round(pct * 100)}%
         </span>
       </div>
@@ -261,9 +270,7 @@ function InputBar({
 function GForcePanel({ latG, longG }: { latG: number; longG: number }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-surface p-5 shadow-surface">
-      <span className="text-xs font-medium uppercase tracking-wider text-muted">
-        G-force
-      </span>
+      <span className="text-xs font-medium tracking-wider text-muted uppercase">G-force</span>
       <div className="grid grid-cols-2 gap-4">
         <GMetric label="Lateral" value={latG} />
         <GMetric label="Longitudinal" value={longG} />
@@ -278,7 +285,7 @@ function GMetric({ label, value }: { label: string; value: number }) {
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted">{label}</span>
       <div className="flex items-baseline gap-1">
-        <span className="text-3xl font-semibold tabular-nums text-foreground leading-none">
+        <span className="text-3xl leading-none font-semibold text-foreground tabular-nums">
           {sign}
           {Math.abs(value).toFixed(2)}
         </span>
@@ -299,14 +306,12 @@ function MetaPanel({ tick }: { tick: TickFrame }) {
   ];
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-surface p-5 shadow-surface">
-      <span className="text-xs font-medium uppercase tracking-wider text-muted">
-        Vehicle
-      </span>
+      <span className="text-xs font-medium tracking-wider text-muted uppercase">Vehicle</span>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="flex items-baseline justify-between gap-2">
             <dt className="text-muted">{k}</dt>
-            <dd className="font-medium tabular-nums text-foreground">{v}</dd>
+            <dd className="font-medium text-foreground tabular-nums">{v}</dd>
           </div>
         ))}
       </dl>
