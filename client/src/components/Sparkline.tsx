@@ -5,6 +5,14 @@ import { useEffect, useRef } from "react";
 import type { TickFrame } from "~/types/tick.generated";
 import { useLiveStore } from "~/utils/live-store";
 
+/**
+ * Forza Data Out streams at ~60 Hz. The window is sized by sample count, not
+ * wall-clock, so each sample maps to a fixed x slot (constant px-per-sample) —
+ * that is what keeps the trace from compressing as the buffer fills. If your
+ * Data Out rate differs, change this and the "last Ns" label stays honest.
+ */
+const SAMPLE_HZ = 60;
+
 interface SparklineProps {
   label: string;
   unit?: string;
@@ -52,8 +60,13 @@ export function Sparkline({
     const baseline = cs.getPropertyValue("--separator").trim() || "rgba(255,255,255,0.18)";
 
     let raf = 0;
-    let lastTs = Number.NaN;
+    let lastNewest: TickFrame | null = null;
     let loggedError = false;
+
+    // Fixed-capacity sample window: the trace spans `capacity` equal-width
+    // slots. Fewer samples → it fills from the left; once full, each new sample
+    // drops the oldest (FIFO), so it scrolls left without ever rescaling.
+    const capacity = Math.max(2, Math.round(windowSec * SAMPLE_HZ));
 
     const redraw = (ring: TickFrame[]) => {
       const dpr = window.devicePixelRatio || 1;
@@ -67,21 +80,17 @@ export function Sparkline({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
+      // Last `capacity` samples, oldest first. `start` walks forward as the
+      // ring grows past capacity, so the window slides one sample per frame.
+      const count = Math.min(ring.length, capacity);
+      const start = ring.length - count;
       const newest = ring[ring.length - 1];
       if (valueRef.current) valueRef.current.textContent = fmtRef.current(accRef.current(newest));
+      if (count < 2) return;
 
-      // `ts` is ns on the wire (epoch ~1.78e18); guard for a ms fallback.
-      const unitPerSec = newest.sts > 1e15 ? 1e9 : 1e3;
-      const cutoff = newest.sts - windowSec * unitPerSec;
-      const pts: TickFrame[] = [];
-      for (let i = ring.length - 1; i >= 0; i--) {
-        if (ring[i].sts < cutoff) break;
-        pts.push(ring[i]);
-      }
-      pts.reverse();
-      if (pts.length < 2) return;
+      const vals: number[] = [];
+      for (let j = 0; j < count; j++) vals.push(accRef.current(ring[start + j]));
 
-      const vals = pts.map((p) => accRef.current(p));
       let min: number;
       let max: number;
       if (signed) {
@@ -94,9 +103,11 @@ export function Sparkline({
         if (max - min < 1e-6) max = min + 1;
       }
 
-      const t0 = pts[0].sts;
-      const span = Math.max(1, newest.sts - t0);
-      const xAt = (ts: number) => ((ts - t0) / span) * w;
+      // One slot per sample against the fixed capacity, oldest pinned to x=0.
+      // Width-per-sample is constant, so the trace fills from the left and
+      // never compresses; the windowSec mark is just "buffer full", not a
+      // rescale.
+      const xAt = (i: number) => (i / (capacity - 1)) * w;
       const yAt = (v: number) => h - 2 - ((v - min) / (max - min)) * (h - 4);
 
       if (signed) {
@@ -112,10 +123,10 @@ export function Sparkline({
       ctx.lineWidth = 1.5;
       ctx.lineJoin = "round";
       ctx.beginPath();
-      for (let i = 0; i < pts.length; i++) {
-        const px = xAt(pts[i].sts);
-        const py = yAt(vals[i]);
-        if (i === 0) ctx.moveTo(px, py);
+      for (let j = 0; j < count; j++) {
+        const px = xAt(j);
+        const py = yAt(vals[j]);
+        if (j === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
       ctx.stroke();
@@ -128,9 +139,11 @@ export function Sparkline({
       try {
         const ring = useLiveStore.getState().ring;
         if (ring.length > 0) {
-          const newestTs = ring[ring.length - 1].sts;
-          if (newestTs !== lastTs) {
-            lastTs = newestTs;
+          // Redraw only when a new frame arrived (a fresh object ref from the WS
+          // decode), so the graph advances per message, not per animation frame.
+          const newest = ring[ring.length - 1];
+          if (newest !== lastNewest) {
+            lastNewest = newest;
             redraw(ring);
           }
         }
