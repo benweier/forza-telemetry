@@ -45,6 +45,11 @@ fn segSDF(p: vec2f, a: vec2f, b: vec2f, r: f32) -> f32 {
   return length(pa - ba*h) - r;
 }
 
+fn roundRect(p: vec2f, half: vec2f, r: f32) -> f32 {
+  let q = abs(p) - half + vec2f(r);
+  return min(max(q.x,q.y),0.) + length(max(q,vec2f(0.))) - r;
+}
+
 fn arc(p: vec2f, r0: f32, r1: f32, a0: f32, a1: f32) -> f32 {
   let radius = length(p);
   var ang = atan2(p.y, p.x);
@@ -91,6 +96,31 @@ fn fs(@builtin(position) frag : vec4f) -> @location(0) vec4f {
   col = mix(col, u.ringRed.rgb, 1.0 - smoothstep(0., aa, needle));
   // hub
   col = mix(col, vec3f(0.23,0.26,0.30), 1.0 - smoothstep(0., aa, circleSDF(p, 0.02)));
+
+  // rail (right of the gauge), in canvas-normalized coords
+  let q = (frag.xy - vec2f(0.78, 0.0)*res) / mn;
+  let qy = frag.y / mn;
+  // gear tile at cy 0.22
+  let gear = roundRect(vec2f(q.x, qy - 0.22*res.y/mn), vec2f(0.08,0.08), 0.03);
+  col = mix(col, vec3f(0.10,0.13,0.18), 1.0 - smoothstep(0., aa, gear));
+  // throttle/brake bars
+  let barH = 0.13; let cyBars = 0.5*res.y/mn;
+  let inThr = roundRect(vec2f(q.x-(-0.025), qy-cyBars), vec2f(0.015, barH), 0.012);
+  let thrFillTop = cyBars + barH - u.throttle*2.0*barH;
+  let thrLit = step(thrFillTop, qy) * (1.0 - smoothstep(0., aa, inThr));
+  col = mix(col, vec3f(0.09,0.10,0.13), 1.0 - smoothstep(0., aa, inThr));
+  col = mix(col, vec3f(0.21,0.82,0.48), thrLit);
+  let inBrk = roundRect(vec2f(q.x-0.025, qy-cyBars), vec2f(0.015, barH), 0.012);
+  let brkFillTop = cyBars + barH - u.brake*2.0*barH;
+  let brkLit = step(brkFillTop, qy) * (1.0 - smoothstep(0., aa, inBrk));
+  col = mix(col, vec3f(0.09,0.10,0.13), 1.0 - smoothstep(0., aa, inBrk));
+  col = mix(col, vec3f(1.0,0.35,0.30), brkLit);
+  // g-circle at cy 0.8 with dot
+  let gcY = 0.8*res.y/mn;
+  let gc = abs(circleSDF(vec2f(q.x, qy-gcY), 0.10)) - 0.002;
+  col = mix(col, vec3f(0.30,0.33,0.40), 1.0 - smoothstep(0., aa, gc));
+  let gdot = circleSDF(vec2f(q.x - u.gx*0.085, qy - gcY - u.gy*0.085), 0.012);
+  col = mix(col, vec3f(0.61,0.55,1.0), 1.0 - smoothstep(0., aa, gdot));
 
   return vec4f(col, 1.0);
 }
