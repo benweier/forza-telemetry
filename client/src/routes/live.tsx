@@ -17,21 +17,12 @@ export const Route = createFileRoute("/live")({
  *  ~60Hz so 2 s of silence reliably means the game stopped sending. */
 const STALE_AFTER_MS = 2000;
 
-function LiveRoute() {
-  // Subscribe individually to minimise re-render fan-out — push() touches
-  // ring on every frame but only `latest` and `lastPushedAt` matter for the
-  // HUD body, and `connected` is independent.
-  const latest = useLiveStore((s) => s.latest);
-  const lastPushedAt = useLiveStore((s) => s.lastPushedAt);
+/** Subscribes to connection state and re-evaluates staleness every 500 ms so
+ *  the status pill updates without needing a new tick frame. */
+export function useLiveStatus(): { connected: boolean; fresh: boolean } {
   const connected = useLiveStore((s) => s.connected);
+  const lastPushedAt = useLiveStore((s) => s.lastPushedAt);
 
-  useEffect(() => {
-    const socket = new LiveSocket("/api/v1/live");
-    socket.start();
-    return () => socket.stop();
-  }, []);
-
-  // Re-render every 500ms so the stale indicator updates without ticks.
   const [, force] = useState(0);
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 500);
@@ -39,6 +30,22 @@ function LiveRoute() {
   }, []);
 
   const fresh = lastPushedAt !== null && Date.now() - lastPushedAt < STALE_AFTER_MS;
+  return { connected, fresh };
+}
+
+function LiveRoute() {
+  // Subscribe individually to minimise re-render fan-out — push() touches
+  // ring on every frame but only `latest` and `lastPushedAt` matter for the
+  // HUD body, and `connected` is independent.
+  const latest = useLiveStore((s) => s.latest);
+
+  useEffect(() => {
+    const socket = new LiveSocket("/api/v1/live");
+    socket.start();
+    return () => socket.stop();
+  }, []);
+
+  const { connected, fresh } = useLiveStatus();
 
   return (
     <section className="flex flex-col gap-8">
@@ -59,7 +66,7 @@ function LiveRoute() {
   );
 }
 
-function StatusPill({ connected, fresh }: { connected: boolean; fresh: boolean }) {
+export function StatusPill({ connected, fresh }: { connected: boolean; fresh: boolean }) {
   if (connected && fresh) {
     return (
       <Chip size="sm" variant="soft" color="success">
