@@ -1,5 +1,5 @@
 /**
- * Cluster geometry in a normalized 0..1 layout space (x right, y down),
+ * Instrument geometry in a normalized 0..1 layout space (x right, y down),
  * mapped to the canvas by the renderer. Sweep angles in radians, measured
  * clockwise from the +x axis. The 270° sweep leaves a 90° notch at the bottom.
  */

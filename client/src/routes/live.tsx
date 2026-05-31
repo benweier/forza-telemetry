@@ -18,7 +18,7 @@ export const Route = createFileRoute("/live")({
 const STALE_AFTER_MS = 2000;
 
 /** Owns the live WebSocket lifecycle for a route: opens on mount, closes on
- *  unmount. Both the HUD and Cluster routes call this so each maintains its own
+ *  unmount. Both the HUD and Instrument routes call this so each maintains its own
  *  connection — switching between them reconnects rather than tearing the only
  *  socket down (the HUD route used to be the sole owner). */
 export function useLiveSocket(): void {
@@ -312,7 +312,7 @@ function GMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function LiveViewToggle({ active }: { active: "hud" | "cluster" }) {
+export function LiveViewToggle({ active }: { active: "hud" | "instrument" }) {
   const base = "rounded-lg px-3 py-1 text-xs font-medium";
   return (
     <div className="flex gap-1 rounded-xl bg-surface p-1 shadow-surface">
@@ -323,10 +323,10 @@ export function LiveViewToggle({ active }: { active: "hud" | "cluster" }) {
         HUD
       </Link>
       <Link
-        to="/live/cluster"
-        className={`${base} ${active === "cluster" ? "bg-accent-soft text-foreground" : "text-muted"}`}
+        to="/live/instrument"
+        className={`${base} ${active === "instrument" ? "bg-accent-soft text-foreground" : "text-muted"}`}
       >
-        Cluster
+        Instrument
       </Link>
     </div>
   );

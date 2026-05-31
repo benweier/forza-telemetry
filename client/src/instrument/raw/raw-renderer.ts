@@ -1,4 +1,4 @@
-import type { ClusterRenderer, ClusterState, RendererOpts } from "../renderer";
+import type { InstrumentRenderer, InstrumentState, RendererOpts } from "../renderer";
 import { DEFAULT_PALETTE, type Palette } from "../core/palette";
 import { acquireDevice } from "./device";
 import instrumentsWGSL from "./passes/instruments.wgsl?raw";
@@ -26,7 +26,7 @@ const BLOOM_UBO_SIZE = 32;
 const MAX_GLYPHS = 64;
 const BYTES_PER_VERT = 32; // posClip(2*4) + uv(2*4) + color(4*4) = 32
 
-export class RawClusterRenderer implements ClusterRenderer {
+export class RawInstrumentRenderer implements InstrumentRenderer {
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
   private format!: GPUTextureFormat;
@@ -245,7 +245,7 @@ export class RawClusterRenderer implements ClusterRenderer {
     });
   }
 
-  render(state: ClusterState): void {
+  render(state: InstrumentState): void {
     // Guard: textures must exist (resize called at least once)
     if (!this.sceneTex || !this.bloomA || !this.bloomB) return;
 
@@ -432,7 +432,7 @@ export class RawClusterRenderer implements ClusterRenderer {
    *     top of the line sits at anchorY - fontPx*0.5 (i.e. anchor is the
    *     vertical middle of the run).
    */
-  private buildTextVerts(state: ClusterState): { data: Float32Array; vertCount: number } {
+  private buildTextVerts(state: InstrumentState): { data: Float32Array; vertCount: number } {
     const floatsPerVert = BYTES_PER_VERT / 4; // 8
     const data = new Float32Array(MAX_GLYPHS * 6 * floatsPerVert);
     let vertCount = 0;

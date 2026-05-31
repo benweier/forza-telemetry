@@ -1,6 +1,6 @@
 import type { TickFrame } from "~/types/tick.generated";
 import { gearLabel } from "~/utils/format";
-import type { ClusterState } from "../renderer";
+import type { InstrumentState } from "../renderer";
 import { SPEC } from "./spec";
 import { fractionToAngle, redlineFactor, valueToFraction } from "./scale";
 
@@ -36,7 +36,7 @@ export function targetsFromTick(t: TickFrame, fallbackRmx = 8000): Targets {
 }
 
 /** Build the renderer state from (already-smoothed) numeric channels. */
-export function buildClusterState(a: Targets): ClusterState {
+export function buildInstrumentState(a: Targets): InstrumentState {
   const { startDeg, extentDeg } = SPEC.sweep;
   const speedFrac = valueToFraction(a.speedKmh, 0, SPEC.scales.speedMaxKmh);
   const rpmFrac = valueToFraction(a.rpm, 0, a.rmx);

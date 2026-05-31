@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveStore } from "~/utils/live-store";
-import { RawClusterRenderer } from "./raw/raw-renderer";
+import { RawInstrumentRenderer } from "./raw/raw-renderer";
 import { makeSmoother, stepSmoother, type Smoother } from "./core/physics";
-import { targetsFromTick, buildClusterState } from "./core/state";
+import { targetsFromTick, buildInstrumentState } from "./core/state";
 
 const STIFF = 90;
 
-export function ClusterCanvas() {
+export function InstrumentCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const renderer = new RawClusterRenderer();
+    const renderer = new RawInstrumentRenderer();
     let raf = 0;
     let disposed = false;
 
@@ -48,14 +48,14 @@ export function ClusterCanvas() {
           ch.gx = stepSmoother(ch.gx, tg.gx, dt, STIFF);
           ch.gy = stepSmoother(ch.gy, tg.gy, dt, STIFF);
         }
-        const state = buildClusterState({
+        const state = buildInstrumentState({
           speedKmh: ch.speed.value, rpm: ch.rpm.value,
           throttle: ch.thr.value, brake: ch.brk.value,
           gx: ch.gx.value, gy: ch.gy.value, gear, rmx,
         });
         renderer.render(state);
       } catch (err) {
-        if (!disposed) console.error("cluster render failed; loop continues", err);
+        if (!disposed) console.error("instrument render failed; loop continues", err);
       } finally {
         raf = requestAnimationFrame(loop);
       }

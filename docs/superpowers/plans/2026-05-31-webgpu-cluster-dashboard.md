@@ -1,10 +1,10 @@
-# WebGPU Driver-Cluster Live View — Implementation Plan
+# WebGPU Driver-Instrument Live View — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an alternative live view at `/live/cluster` that renders a skeuomorphic driver's-seat instrument cluster entirely in WebGPU, driven by the same `useLiveStore` telemetry as the existing DOM HUD.
+**Goal:** Add an alternative live view at `/live/instrument` that renders a skeuomorphic driver's-seat instrument entirely in WebGPU, driven by the same `useLiveStore` telemetry as the existing DOM HUD.
 
-**Architecture:** A renderer-agnostic `core/` (pure TS: geometry spec, value→angle scaling, spring physics, tick→state projection, MSDF glyph layout) sits behind a `ClusterRenderer` interface. Phase 1 ships one implementation, `raw/` (hand-written WGSL: a fullscreen SDF instrument pass, an MSDF glyph pass, a bloom post pass). A thin React host (`ClusterCanvas.tsx`) owns the canvas, device lifecycle, and an rAF loop that reads the store, steps physics, and calls `render(state)`. Browsers without WebGPU get a notice. Phase 2 (R3F/Three.js) reuses all of `core/` behind the same interface and is **out of scope for this plan**.
+**Architecture:** A renderer-agnostic `core/` (pure TS: geometry spec, value→angle scaling, spring physics, tick→state projection, MSDF glyph layout) sits behind a `InstrumentRenderer` interface. Phase 1 ships one implementation, `raw/` (hand-written WGSL: a fullscreen SDF instrument pass, an MSDF glyph pass, a bloom post pass). A thin React host (`InstrumentCanvas.tsx`) owns the canvas, device lifecycle, and an rAF loop that reads the store, steps physics, and calls `render(state)`. Browsers without WebGPU get a notice. Phase 2 (R3F/Three.js) reuses all of `core/` behind the same interface and is **out of scope for this plan**.
 
 **Tech Stack:** TypeScript, WebGPU (`navigator.gpu`), WGSL, TanStack Start (file routes), Zustand (`useLiveStore`), Vitest (new — first client test runner), Vite `?raw` imports for WGSL, MSDF font atlas.
 
@@ -17,28 +17,28 @@
 ## File structure (locked)
 
 ```
-client/src/cluster/
-  renderer.ts                 # ClusterRenderer interface + RendererOpts + ClusterState types
+client/src/instrument/
+  renderer.ts                 # InstrumentRenderer interface + RendererOpts + InstrumentState types
   core/
     spec.ts                   # geometry constants (radii, sweep, notch, ticks, rail layout)
     palette.ts                # colour stops + neon colours
     scale.ts                  # value→angle mapping, clamp, redline factor (pure)
     physics.ts                # critically-damped scalar smoother (pure)
-    state.ts                  # Targets type, targetsFromTick(), buildClusterState()
+    state.ts                  # Targets type, targetsFromTick(), buildInstrumentState()
     msdf/
       layout.ts               # string + metrics → positioned glyph quads (pure)
       atlas.png               # committed MSDF atlas (generated offline)
       atlas.json              # committed glyph metrics
   raw/
     device.ts                 # acquireDevice() → {ok, device, ctx, format} | {ok:false, reason}
-    raw-renderer.ts           # implements ClusterRenderer
+    raw-renderer.ts           # implements InstrumentRenderer
     passes/
       instruments.wgsl        # fullscreen SDF pass (all analog instruments)
       glyphs.wgsl             # MSDF textured-quad pass
       bloom.wgsl              # bright-pass + separable blur + composite
-  ClusterCanvas.tsx           # React host
-client/src/routes/live.cluster.tsx   # new route
-client/src/routes/live.tsx           # MODIFY: add HUD/Cluster toggle in header
+  InstrumentCanvas.tsx           # React host
+client/src/routes/live.instrument.tsx   # new route
+client/src/routes/live.tsx           # MODIFY: add HUD/Instrument toggle in header
 client/vitest.config.ts              # new
 client/package.json                  # MODIFY: add vitest + test script
 ```
@@ -52,7 +52,7 @@ client/package.json                  # MODIFY: add vitest + test script
 **Files:**
 - Modify: `client/package.json`
 - Create: `client/vitest.config.ts`
-- Create: `client/src/cluster/core/smoke.test.ts` (temporary, deleted in Step 6)
+- Create: `client/src/instrument/core/smoke.test.ts` (temporary, deleted in Step 6)
 
 - [ ] **Step 1: Add Vitest**
 
@@ -85,7 +85,7 @@ If `vite-tsconfig-paths` is not already a dependency, install it: `pnpm add -D v
 
 - [ ] **Step 4: Write a smoke test**
 
-`client/src/cluster/core/smoke.test.ts`:
+`client/src/instrument/core/smoke.test.ts`:
 ```ts
 import { expect, test } from "vitest";
 
@@ -114,7 +114,7 @@ This is how shaders load — `import shader from "./x.wgsl?raw"` yields the sour
 
 ```bash
 git add client/package.json client/pnpm-lock.yaml client/vitest.config.ts client/src/vite-env.d.ts
-git commit -m "chore(client): add vitest + wgsl raw-import typing for cluster work"
+git commit -m "chore(client): add vitest + wgsl raw-import typing for instrument work"
 ```
 
 ---
@@ -122,16 +122,16 @@ git commit -m "chore(client): add vitest + wgsl raw-import typing for cluster wo
 ## Task 1: Renderer types + geometry spec + palette
 
 **Files:**
-- Create: `client/src/cluster/renderer.ts`
-- Create: `client/src/cluster/core/spec.ts`
-- Create: `client/src/cluster/core/palette.ts`
-- Test: `client/src/cluster/core/spec.test.ts`
+- Create: `client/src/instrument/renderer.ts`
+- Create: `client/src/instrument/core/spec.ts`
+- Create: `client/src/instrument/core/palette.ts`
+- Test: `client/src/instrument/core/spec.test.ts`
 
 - [ ] **Step 1: Write `renderer.ts` (types + interface, no logic)**
 
 ```ts
-/** Per-frame, renderer-agnostic description of the cluster. */
-export interface ClusterState {
+/** Per-frame, renderer-agnostic description of the instrument. */
+export interface InstrumentState {
   speedKmh: number;       // for the digital readout
   rpm: number;            // raw, for the rpm caption
   speedAngle: number;     // radians within the dial sweep (0 at sweep start)
@@ -149,9 +149,9 @@ export interface RendererOpts {
   colors?: Partial<import("./core/palette").Palette>;
 }
 
-export interface ClusterRenderer {
+export interface InstrumentRenderer {
   init(canvas: HTMLCanvasElement, opts: RendererOpts): Promise<void>;
-  render(state: ClusterState): void;
+  render(state: InstrumentState): void;
   resize(width: number, height: number, dpr: number): void;
   destroy(): void;
 }
@@ -192,7 +192,7 @@ export const DEFAULT_PALETTE: Palette = {
 
 ```ts
 /**
- * Cluster geometry in a normalized 0..1 layout space (x right, y down),
+ * Instrument geometry in a normalized 0..1 layout space (x right, y down),
  * mapped to the canvas by the renderer. Sweep angles in radians, measured
  * clockwise from the +x axis. The 270° sweep leaves a 90° notch at the bottom.
  */
@@ -235,8 +235,8 @@ test("redline fraction is within the dial", () => {
 - [ ] **Step 6: Commit**
 
 ```bash
-git add client/src/cluster/renderer.ts client/src/cluster/core/spec.ts client/src/cluster/core/palette.ts client/src/cluster/core/spec.test.ts
-git commit -m "feat(client/cluster): renderer interface, geometry spec, palette"
+git add client/src/instrument/renderer.ts client/src/instrument/core/spec.ts client/src/instrument/core/palette.ts client/src/instrument/core/spec.test.ts
+git commit -m "feat(client/instrument): renderer interface, geometry spec, palette"
 ```
 
 ---
@@ -244,8 +244,8 @@ git commit -m "feat(client/cluster): renderer interface, geometry spec, palette"
 ## Task 2: `scale.ts` — value→angle mapping (TDD)
 
 **Files:**
-- Create: `client/src/cluster/core/scale.ts`
-- Test: `client/src/cluster/core/scale.test.ts`
+- Create: `client/src/instrument/core/scale.ts`
+- Test: `client/src/instrument/core/scale.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -305,8 +305,8 @@ export function redlineFactor(fraction: number, threshold: number): number {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/cluster/core/scale.ts client/src/cluster/core/scale.test.ts
-git commit -m "feat(client/cluster): value→angle scaling + redline factor"
+git add client/src/instrument/core/scale.ts client/src/instrument/core/scale.test.ts
+git commit -m "feat(client/instrument): value→angle scaling + redline factor"
 ```
 
 ---
@@ -314,8 +314,8 @@ git commit -m "feat(client/cluster): value→angle scaling + redline factor"
 ## Task 3: `physics.ts` — critically-damped smoother (TDD)
 
 **Files:**
-- Create: `client/src/cluster/core/physics.ts`
-- Test: `client/src/cluster/core/physics.test.ts`
+- Create: `client/src/instrument/core/physics.ts`
+- Test: `client/src/instrument/core/physics.test.ts`
 
 Critically-damped spring (no overshoot), semi-implicit Euler. `damping = 2·sqrt(stiffness)`.
 
@@ -391,17 +391,17 @@ export function stepSmoother(s: Smoother, target: number, dt: number, stiffness:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/cluster/core/physics.ts client/src/cluster/core/physics.test.ts
-git commit -m "feat(client/cluster): critically-damped needle smoother"
+git add client/src/instrument/core/physics.ts client/src/instrument/core/physics.test.ts
+git commit -m "feat(client/instrument): critically-damped needle smoother"
 ```
 
 ---
 
-## Task 4: `state.ts` — tick→targets + buildClusterState (TDD)
+## Task 4: `state.ts` — tick→targets + buildInstrumentState (TDD)
 
 **Files:**
-- Create: `client/src/cluster/core/state.ts`
-- Test: `client/src/cluster/core/state.test.ts`
+- Create: `client/src/instrument/core/state.ts`
+- Test: `client/src/instrument/core/state.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -409,7 +409,7 @@ git commit -m "feat(client/cluster): critically-damped needle smoother"
 ```ts
 import { expect, test } from "vitest";
 import type { TickFrame } from "~/types/tick.generated";
-import { targetsFromTick, buildClusterState, gearLabel } from "./state";
+import { targetsFromTick, buildInstrumentState, gearLabel } from "./state";
 
 function tick(p: Partial<TickFrame>): TickFrame {
   return { sp: 0, rpm: 0, rmx: 8000, g: 0, tp: 0, bp: 0, lg: 0, lng: 0 } as TickFrame & typeof p && { ...({} as TickFrame), ...p } as TickFrame;
@@ -426,8 +426,8 @@ test("gearLabel maps neutral and reverse", () => {
   expect(gearLabel(3)).toBe("3");
 });
 
-test("buildClusterState produces angles within the sweep", () => {
-  const cs = buildClusterState({ speedKmh: 0, rpm: 0, throttle: 0, brake: 0, gx: 0, gy: 0, gear: "N", rmx: 8000 });
+test("buildInstrumentState produces angles within the sweep", () => {
+  const cs = buildInstrumentState({ speedKmh: 0, rpm: 0, throttle: 0, brake: 0, gx: 0, gy: 0, gear: "N", rmx: 8000 });
   const RAD = Math.PI / 180;
   expect(cs.speedAngle).toBeCloseTo(135 * RAD, 5);
   expect(cs.rpmAngle).toBeCloseTo(135 * RAD, 5);
@@ -441,7 +441,7 @@ test("buildClusterState produces angles within the sweep", () => {
 
 ```ts
 import type { TickFrame } from "~/types/tick.generated";
-import type { ClusterState } from "../renderer";
+import type { InstrumentState } from "../renderer";
 import { SPEC } from "./spec";
 import { fractionToAngle, redlineFactor, valueToFraction } from "./scale";
 
@@ -480,7 +480,7 @@ export function targetsFromTick(t: TickFrame, _fallbackRmx = 8000): Targets {
 }
 
 /** Build the renderer state from (already-smoothed) numeric channels. */
-export function buildClusterState(a: Targets): ClusterState {
+export function buildInstrumentState(a: Targets): InstrumentState {
   const { startDeg, extentDeg } = SPEC.sweep;
   const speedFrac = valueToFraction(a.speedKmh, 0, SPEC.scales.speedMaxKmh);
   const rpmFrac = valueToFraction(a.rpm, 0, a.rmx);
@@ -504,8 +504,8 @@ export function buildClusterState(a: Targets): ClusterState {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/cluster/core/state.ts client/src/cluster/core/state.test.ts
-git commit -m "feat(client/cluster): tick→targets projection + cluster state builder"
+git add client/src/instrument/core/state.ts client/src/instrument/core/state.test.ts
+git commit -m "feat(client/instrument): tick→targets projection + instrument state builder"
 ```
 
 ---
@@ -513,7 +513,7 @@ git commit -m "feat(client/cluster): tick→targets projection + cluster state b
 ## Task 5: WebGPU device acquisition
 
 **Files:**
-- Create: `client/src/cluster/raw/device.ts`
+- Create: `client/src/instrument/raw/device.ts`
 
 (No unit test — browser API; exercised by the host and visual checks.)
 
@@ -547,8 +547,8 @@ export async function acquireDevice(canvas: HTMLCanvasElement): Promise<DeviceRe
 - [ ] **Step 3: Commit**
 
 ```bash
-git add client/src/cluster/raw/device.ts client/package.json client/pnpm-lock.yaml client/tsconfig.json
-git commit -m "feat(client/cluster): webgpu device acquisition helper"
+git add client/src/instrument/raw/device.ts client/package.json client/pnpm-lock.yaml client/tsconfig.json
+git commit -m "feat(client/instrument): webgpu device acquisition helper"
 ```
 
 ---
@@ -556,18 +556,18 @@ git commit -m "feat(client/cluster): webgpu device acquisition helper"
 ## Task 6: Raw renderer skeleton — clear pass + blank canvas
 
 **Files:**
-- Create: `client/src/cluster/raw/raw-renderer.ts`
+- Create: `client/src/instrument/raw/raw-renderer.ts`
 
 Goal: `init` → configures device, `render` → clears to the panel colour, `resize`/`destroy` work. Verified by a temporary host snippet in Step 3.
 
 - [ ] **Step 1: Implement the skeleton**
 
 ```ts
-import type { ClusterRenderer, ClusterState, RendererOpts } from "../renderer";
+import type { InstrumentRenderer, InstrumentState, RendererOpts } from "../renderer";
 import { DEFAULT_PALETTE, type Palette } from "../core/palette";
 import { acquireDevice } from "./device";
 
-export class RawClusterRenderer implements ClusterRenderer {
+export class RawInstrumentRenderer implements InstrumentRenderer {
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
   private format!: GPUTextureFormat;
@@ -590,7 +590,7 @@ export class RawClusterRenderer implements ClusterRenderer {
     // canvas backing size is set by the host; nothing else needed for the clear pass yet.
   }
 
-  render(_state: ClusterState): void {
+  render(_state: InstrumentState): void {
     const [r, g, b] = this.palette.panel;
     const encoder = this.device.createCommandEncoder();
     const view = this.context.getCurrentTexture().createView();
@@ -611,19 +611,19 @@ export class RawClusterRenderer implements ClusterRenderer {
 
 - [ ] **Step 3: Manual visual smoke (temporary)**
 
-Temporarily wire the renderer into `ClusterCanvas` is Task 11; for now verify via a throwaway in the browser console on any page after `pnpm dev`:
+Temporarily wire the renderer into `InstrumentCanvas` is Task 11; for now verify via a throwaway in the browser console on any page after `pnpm dev`:
 ```js
 const c = document.createElement("canvas"); c.width = 400; c.height = 300; document.body.append(c);
-const { RawClusterRenderer } = await import("/src/cluster/raw/raw-renderer.ts");
-const r = new RawClusterRenderer(); await r.init(c, {}); r.resize(400,300,1); r.render({});
+const { RawInstrumentRenderer } = await import("/src/instrument/raw/raw-renderer.ts");
+const r = new RawInstrumentRenderer(); await r.init(c, {}); r.resize(400,300,1); r.render({});
 ```
 Expected: a dark (panel-colour) rectangle appears. Remove the canvas afterward (`c.remove()`).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add client/src/cluster/raw/raw-renderer.ts
-git commit -m "feat(client/cluster): raw renderer skeleton with clear pass"
+git add client/src/instrument/raw/raw-renderer.ts
+git commit -m "feat(client/instrument): raw renderer skeleton with clear pass"
 ```
 
 ---
@@ -631,8 +631,8 @@ git commit -m "feat(client/cluster): raw renderer skeleton with clear pass"
 ## Task 7: Instrument pass — fullscreen SDF, tach ring first
 
 **Files:**
-- Create: `client/src/cluster/raw/passes/instruments.wgsl`
-- Modify: `client/src/cluster/raw/raw-renderer.ts`
+- Create: `client/src/instrument/raw/passes/instruments.wgsl`
+- Modify: `client/src/instrument/raw/raw-renderer.ts`
 
 Approach: one fullscreen-triangle vertex stage + a fragment stage that draws instruments analytically from a uniform block. Start with just the tach ring so the pipeline is proven, then add instruments in Task 8.
 
@@ -739,7 +739,7 @@ this.bindGroup = this.device.createBindGroup({
 
 Replace `render` body to pack uniforms + draw 3 verts:
 ```ts
-render(state: ClusterState): void {
+render(state: InstrumentState): void {
   const RAD = Math.PI / 180;
   const u = new Float32Array(32);
   u[0] = this.width; u[1] = this.height;
@@ -778,8 +778,8 @@ render(state: ClusterState): void {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/cluster/raw/passes/instruments.wgsl client/src/cluster/raw/raw-renderer.ts
-git commit -m "feat(client/cluster): instrument pass with tach ring (SDF)"
+git add client/src/instrument/raw/passes/instruments.wgsl client/src/instrument/raw/raw-renderer.ts
+git commit -m "feat(client/instrument): instrument pass with tach ring (SDF)"
 ```
 
 ---
@@ -787,7 +787,7 @@ git commit -m "feat(client/cluster): instrument pass with tach ring (SDF)"
 ## Task 8: Instrument pass — speed dial + ticks + needle, gear tile, input bars, g-circle
 
 **Files:**
-- Modify: `client/src/cluster/raw/passes/instruments.wgsl`
+- Modify: `client/src/instrument/raw/passes/instruments.wgsl`
 
 Add the remaining analog instruments to the fragment shader, each as an SDF contribution composited over the panel. Add these helper SDFs and draw calls **incrementally, visual-checking after each** (each is its own commit-worthy increment, but they share one file — commit per instrument group).
 
@@ -835,8 +835,8 @@ In `fs`, after the ring, before `return`:
 
 Visual check (console snippet, vary `speedAngle`); needle should sweep with the same notch. Commit:
 ```bash
-git add client/src/cluster/raw/passes/instruments.wgsl
-git commit -m "feat(client/cluster): speed dial, ticks, needle"
+git add client/src/instrument/raw/passes/instruments.wgsl
+git commit -m "feat(client/instrument): speed dial, ticks, needle"
 ```
 
 - [ ] **Step 2: Gear tile + throttle/brake bars + g-circle (rail)**
@@ -882,8 +882,8 @@ fn roundRect(p: vec2f, half: vec2f, r: f32) -> f32 {
 
 Visual check; commit:
 ```bash
-git add client/src/cluster/raw/passes/instruments.wgsl
-git commit -m "feat(client/cluster): gear tile, throttle/brake bars, g-force circle"
+git add client/src/instrument/raw/passes/instruments.wgsl
+git commit -m "feat(client/instrument): gear tile, throttle/brake bars, g-force circle"
 ```
 
 ---
@@ -891,8 +891,8 @@ git commit -m "feat(client/cluster): gear tile, throttle/brake bars, g-force cir
 ## Task 9: Bloom post pass
 
 **Files:**
-- Create: `client/src/cluster/raw/passes/bloom.wgsl`
-- Modify: `client/src/cluster/raw/raw-renderer.ts`
+- Create: `client/src/instrument/raw/passes/bloom.wgsl`
+- Modify: `client/src/instrument/raw/raw-renderer.ts`
 
 Render the instrument pass to an offscreen texture, then: bright-pass (keep redline ring + needle + glowing fills) → horizontal blur → vertical blur → additive composite to the swapchain.
 
@@ -942,8 +942,8 @@ fn uv(fc: vec4f, texel: vec2f) -> vec2f { return fc.xy * texel; }
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/cluster/raw/passes/bloom.wgsl client/src/cluster/raw/raw-renderer.ts
-git commit -m "feat(client/cluster): bloom post pass for redline/needle glow"
+git add client/src/instrument/raw/passes/bloom.wgsl client/src/instrument/raw/raw-renderer.ts
+git commit -m "feat(client/instrument): bloom post pass for redline/needle glow"
 ```
 
 ---
@@ -951,18 +951,18 @@ git commit -m "feat(client/cluster): bloom post pass for redline/needle glow"
 ## Task 10: MSDF text — atlas asset, layout, glyph pass
 
 **Files:**
-- Create: `client/src/cluster/core/msdf/atlas.png`, `atlas.json` (generated offline)
-- Create: `client/src/cluster/core/msdf/layout.ts`
-- Test: `client/src/cluster/core/msdf/layout.test.ts`
-- Create: `client/src/cluster/raw/passes/glyphs.wgsl`
-- Modify: `client/src/cluster/raw/raw-renderer.ts`
+- Create: `client/src/instrument/core/msdf/atlas.png`, `atlas.json` (generated offline)
+- Create: `client/src/instrument/core/msdf/layout.ts`
+- Test: `client/src/instrument/core/msdf/layout.test.ts`
+- Create: `client/src/instrument/raw/passes/glyphs.wgsl`
+- Modify: `client/src/instrument/raw/raw-renderer.ts`
 
 - [ ] **Step 1: Generate the MSDF atlas offline**
 
 Install the generator and produce an atlas covering `0123456789RN.-` plus the label strings' letters (`KMH RPM THRBKG /`):
 ```bash
 # one-time, not wired into the build
-npx msdf-bmfont-xml -f json -o client/src/cluster/core/msdf/atlas \
+npx msdf-bmfont-xml -f json -o client/src/instrument/core/msdf/atlas \
   -s 42 -t msdf -i "0123456789RN.-KMHRPTBG/ " <path-to-a-condensed-sans.ttf>
 ```
 This writes `atlas.png` + `atlas.json` (glyph `chars` with `x,y,width,height,xoffset,yoffset,xadvance` and `common.scaleW/scaleH`). Commit the two assets. (If `msdf-bmfont-xml` is unavailable, `msdf-atlas-gen` produces an equivalent JSON; adapt field names in `layout.ts`.)
@@ -1053,36 +1053,36 @@ In the renderer: load `atlas.png` into a `GPUTexture` (via `createImageBitmap` +
 - [ ] **Step 8: Commit**
 
 ```bash
-git add client/src/cluster/core/msdf/ client/src/cluster/raw/passes/glyphs.wgsl client/src/cluster/raw/raw-renderer.ts client/src/cluster/core/msdf/layout.test.ts
-git commit -m "feat(client/cluster): MSDF text — atlas, layout, glyph pass"
+git add client/src/instrument/core/msdf/ client/src/instrument/raw/passes/glyphs.wgsl client/src/instrument/raw/raw-renderer.ts client/src/instrument/core/msdf/layout.test.ts
+git commit -m "feat(client/instrument): MSDF text — atlas, layout, glyph pass"
 ```
 
 ---
 
-## Task 11: React host — `ClusterCanvas.tsx`
+## Task 11: React host — `InstrumentCanvas.tsx`
 
 **Files:**
-- Create: `client/src/cluster/ClusterCanvas.tsx`
+- Create: `client/src/instrument/InstrumentCanvas.tsx`
 
 - [ ] **Step 1: Implement the host**
 
 ```tsx
 import { useEffect, useRef, useState } from "react";
 import { useLiveStore } from "~/utils/live-store";
-import { RawClusterRenderer } from "./raw/raw-renderer";
+import { RawInstrumentRenderer } from "./raw/raw-renderer";
 import { makeSmoother, stepSmoother, type Smoother } from "./core/physics";
-import { targetsFromTick, buildClusterState } from "./core/state";
+import { targetsFromTick, buildInstrumentState } from "./core/state";
 
 const STIFF = 90;
 
-export function ClusterCanvas() {
+export function InstrumentCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const renderer = new RawClusterRenderer();
+    const renderer = new RawInstrumentRenderer();
     let raf = 0;
     let disposed = false;
 
@@ -1118,14 +1118,14 @@ export function ClusterCanvas() {
           ch.gx = stepSmoother(ch.gx, tg.gx, dt, STIFF);
           ch.gy = stepSmoother(ch.gy, tg.gy, dt, STIFF);
         }
-        const state = buildClusterState({
+        const state = buildInstrumentState({
           speedKmh: ch.speed.value, rpm: ch.rpm.value,
           throttle: ch.thr.value, brake: ch.brk.value,
           gx: ch.gx.value, gy: ch.gy.value, gear, rmx,
         });
         renderer.render(state);
       } catch (err) {
-        if (!disposed) console.error("cluster render failed; loop continues", err);
+        if (!disposed) console.error("instrument render failed; loop continues", err);
       } finally {
         raf = requestAnimationFrame(loop);
       }
@@ -1159,44 +1159,44 @@ export function ClusterCanvas() {
 - [ ] **Step 3: Commit**
 
 ```bash
-git add client/src/cluster/ClusterCanvas.tsx
-git commit -m "feat(client/cluster): react host with rAF physics loop + webgpu notice"
+git add client/src/instrument/InstrumentCanvas.tsx
+git commit -m "feat(client/instrument): react host with rAF physics loop + webgpu notice"
 ```
 
 ---
 
-## Task 12: Route + HUD/Cluster toggle
+## Task 12: Route + HUD/Instrument toggle
 
 **Files:**
-- Create: `client/src/routes/live.cluster.tsx`
+- Create: `client/src/routes/live.instrument.tsx`
 - Modify: `client/src/routes/live.tsx`
 
-- [ ] **Step 1: Create `routes/live.cluster.tsx`**
+- [ ] **Step 1: Create `routes/live.instrument.tsx`**
 
 Follow the existing route module pattern in `routes/live.tsx` (inspect it first for the `createFileRoute` import and export shape). Skeleton:
 ```tsx
 import { createFileRoute } from "@tanstack/react-router";
-import { ClusterCanvas } from "~/cluster/ClusterCanvas";
+import { InstrumentCanvas } from "~/instrument/InstrumentCanvas";
 import { LiveViewToggle } from "./live"; // export the toggle from live.tsx in Step 2
 
-export const Route = createFileRoute("/live/cluster")({ component: ClusterRoute });
+export const Route = createFileRoute("/live/instrument")({ component: InstrumentRoute });
 
-function ClusterRoute() {
+function InstrumentRoute() {
   return (
     <section className="flex flex-col gap-8">
       <header className="flex items-baseline justify-between gap-4">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium tracking-wider text-muted uppercase">Realtime</span>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Cluster</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Instrument</h1>
         </div>
-        <LiveViewToggle active="cluster" />
+        <LiveViewToggle active="instrument" />
       </header>
-      <ClusterCanvas />
+      <InstrumentCanvas />
     </section>
   );
 }
 ```
-(Confirm the file-route path string TanStack expects for a nested `live/cluster` — match the project's existing nested-route convention.)
+(Confirm the file-route path string TanStack expects for a nested `live/instrument` — match the project's existing nested-route convention.)
 
 - [ ] **Step 2: Add + export `LiveViewToggle` in `live.tsx`, render it in the HUD header**
 
@@ -1204,12 +1204,12 @@ Add a small segmented control and render it in the existing `LiveRoute` header n
 ```tsx
 import { Link } from "@tanstack/react-router";
 
-export function LiveViewToggle({ active }: { active: "hud" | "cluster" }) {
+export function LiveViewToggle({ active }: { active: "hud" | "instrument" }) {
   const base = "rounded-lg px-3 py-1 text-xs font-medium";
   return (
     <div className="flex gap-1 rounded-xl bg-surface p-1 shadow-surface">
       <Link to="/live" className={`${base} ${active === "hud" ? "bg-accent-soft text-foreground" : "text-muted"}`}>HUD</Link>
-      <Link to="/live/cluster" className={`${base} ${active === "cluster" ? "bg-accent-soft text-foreground" : "text-muted"}`}>Cluster</Link>
+      <Link to="/live/instrument" className={`${base} ${active === "instrument" ? "bg-accent-soft text-foreground" : "text-muted"}`}>Instrument</Link>
     </div>
   );
 }
@@ -1221,8 +1221,8 @@ In `LiveRoute`'s header, replace the lone `<StatusPill .../>` with a flex row co
 - [ ] **Step 4: Commit**
 
 ```bash
-git add client/src/routes/live.cluster.tsx client/src/routes/live.tsx
-git commit -m "feat(client): /live/cluster route + HUD/Cluster toggle"
+git add client/src/routes/live.instrument.tsx client/src/routes/live.tsx
+git commit -m "feat(client): /live/instrument route + HUD/Instrument toggle"
 ```
 
 ---
@@ -1233,7 +1233,7 @@ git commit -m "feat(client): /live/cluster route + HUD/Cluster toggle"
 
 - [ ] **Step 1: Run dev** — `cd client && pnpm dev` (and the Go server if you want real data; otherwise inject).
 
-- [ ] **Step 2: Navigate + inject** — via Chrome DevTools MCP, open `http://localhost:3000/live/cluster`. Inject synthetic `useLiveStore` state across the range (idle, mid, redline) using the pattern from the sparkline verification (build full `TickFrame` objects; set `store.setState({ latest })` and optionally neutralise `push`). Screenshot at:
+- [ ] **Step 2: Navigate + inject** — via Chrome DevTools MCP, open `http://localhost:3000/live/instrument`. Inject synthetic `useLiveStore` state across the range (idle, mid, redline) using the pattern from the sparkline verification (build full `TickFrame` objects; set `store.setState({ latest })` and optionally neutralise `push`). Screenshot at:
   - idle (rpm ~900, speed 0)
   - mid (rpm ~4000, speed ~120, throttle 1, some `lg`)
   - redline (rpm ≥ 0.9·rmx) — confirm ring glow blooms, needle sweeps, gear/speed text crisp, g-dot offset.
@@ -1248,7 +1248,7 @@ git commit -m "feat(client): /live/cluster route + HUD/Cluster toggle"
 
 ## Self-review notes (addressed)
 
-- **Spec coverage:** concentric tach ring + speed dial/ticks/needle/digital (Tasks 7–8, 10), gear/throttle/brake/g (Task 8, 10), all-WebGPU incl. text (Task 10), bloom/spring fidelity (Tasks 9, 3, 11), `/live/cluster` + toggle (Task 12), WebGPU-required notice (Task 11), shared core + interface (Tasks 1–4), Vitest (Task 0), WGSL `?raw` (Task 0), MSDF assets (Task 10), visual verification (Task 13). Phase 2 (Three.js) intentionally excluded.
-- **Type consistency:** `ClusterState`/`Targets`/`Smoother`/`ClusterRenderer`/`Palette`/`MsdfAtlas` names are used identically across tasks; uniform float offsets in Task 7 match the WGSL `Uniforms` struct.
+- **Spec coverage:** concentric tach ring + speed dial/ticks/needle/digital (Tasks 7–8, 10), gear/throttle/brake/g (Task 8, 10), all-WebGPU incl. text (Task 10), bloom/spring fidelity (Tasks 9, 3, 11), `/live/instrument` + toggle (Task 12), WebGPU-required notice (Task 11), shared core + interface (Tasks 1–4), Vitest (Task 0), WGSL `?raw` (Task 0), MSDF assets (Task 10), visual verification (Task 13). Phase 2 (Three.js) intentionally excluded.
+- **Type consistency:** `InstrumentState`/`Targets`/`Smoother`/`InstrumentRenderer`/`Palette`/`MsdfAtlas` names are used identically across tasks; uniform float offsets in Task 7 match the WGSL `Uniforms` struct.
 - **Known iterative areas (not placeholders — visual tuning is expected):** shader appearance in Tasks 7–10 is brought up with real first-pass code then tuned against screenshots; bloom threshold/intensity and text sizes are explicitly tuned in their visual-check steps.
 ```

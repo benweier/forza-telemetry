@@ -1,4 +1,4 @@
-# Driver's-Seat Cluster — WebGPU Live View (Design Spec)
+# Driver's-Seat Instrument — WebGPU Live View (Design Spec)
 
 - **Date:** 2026-05-31
 - **Status:** Approved design → ready for implementation plan
@@ -6,11 +6,11 @@
 
 ## Summary
 
-An alternative live view that renders a skeuomorphic driver's-seat instrument cluster in **WebGPU**, driven by the same live telemetry as the existing DOM HUD. It is a deliberate showcase piece — overkill by design — demonstrating WebGPU as the WebGL successor. Everything visible (dials, needles, bars, **and text**) is GPU-rendered.
+An alternative live view that renders a skeuomorphic driver's-seat instrument in **WebGPU**, driven by the same live telemetry as the existing DOM HUD. It is a deliberate showcase piece — overkill by design — demonstrating WebGPU as the WebGL successor. Everything visible (dials, needles, bars, **and text**) is GPU-rendered.
 
 ## Goals
 
-- A concentric analog cluster with glass + neon highlights, GPU-rendered, fed by `useLiveStore`.
+- A concentric analog instrument with glass + neon highlights, GPU-rendered, fed by `useLiveStore`.
 - Reachable without disturbing the existing HUD.
 - Clean separation between renderer-agnostic domain logic and the renderer, so a second (Three.js) renderer can be added later for comparison with maximal code reuse.
 
@@ -39,8 +39,8 @@ Reference mockups: `.superpowers/brainstorm/63100-1780224908/content/layout-v3.h
 
 ## Integration
 
-- New file-based route **`client/src/routes/live.cluster.tsx`** → path **`/live/cluster`**.
-- A small **segmented toggle** ("HUD" / "Cluster") in the live header links the two. The existing `routes/live.tsx` DOM HUD is **untouched**; both read the same `useLiveStore`.
+- New file-based route **`client/src/routes/live.instrument.tsx`** → path **`/live/instrument`**.
+- A small **segmented toggle** ("HUD" / "Instrument") in the live header links the two. The existing `routes/live.tsx` DOM HUD is **untouched**; both read the same `useLiveStore`.
 
 ## Fallback
 
@@ -48,17 +48,17 @@ Reference mockups: `.superpowers/brainstorm/63100-1780224908/content/layout-v3.h
 
 ## Architecture
 
-Renderer-agnostic **core** + a **`ClusterRenderer` interface** + a **raw** implementation + a thin React **host**. This structure is what makes Phase 2 (Three.js) a drop-in second implementation.
+Renderer-agnostic **core** + a **`InstrumentRenderer` interface** + a **raw** implementation + a thin React **host**. This structure is what makes Phase 2 (Three.js) a drop-in second implementation.
 
 ```
-client/src/cluster/
+client/src/instrument/
   core/                      # renderer-agnostic, unit-tested, SHARED across renderers
     spec.ts                  # geometry constants: ring radii, sweep start/extent, notch,
                              #   tick counts, rail layout, normalized positions
     palette.ts               # colour stops + neon/glow colours (tuned to Glass; see Theming)
     scale.ts                 # pure value→sweep-angle mapping, clamping, redline threshold
     physics.ts               # spring-damper integrator (step(state, target, dt) → state)
-    state.ts                 # TickFrame → ClusterState projection (units, gear, clamps)
+    state.ts                 # TickFrame → InstrumentState projection (units, gear, clamps)
     sdf.wgsl                 # pure WGSL SDF/AA math functions (ring arc, tick, needle,
                              #   circle, rounded rect) — reused by raw; wrapped for Three later
     msdf/
@@ -72,29 +72,29 @@ client/src/cluster/
       instruments.wgsl       # fullscreen SDF pass: all analog instruments from a uniform block
       glyphs.wgsl            # MSDF textured-quad pass
       bloom.wgsl             # bright-pass + separable blur + additive composite
-  ClusterCanvas.tsx          # React host: <canvas>, device init, rAF loop, lifecycle, notice
+  InstrumentCanvas.tsx          # React host: <canvas>, device init, rAF loop, lifecycle, notice
 ```
 
-### `ClusterRenderer` interface (`renderer.ts`)
+### `InstrumentRenderer` interface (`renderer.ts`)
 
 ```ts
-interface ClusterRenderer {
+interface InstrumentRenderer {
   init(canvas: HTMLCanvasElement, opts: RendererOpts): Promise<void>; // throws → notice
-  render(state: ClusterState): void;   // called per rAF frame
+  render(state: InstrumentState): void;   // called per rAF frame
   resize(width: number, height: number, dpr: number): void;
   destroy(): void;                     // free GPU resources
 }
 ```
 
-`ClusterState` is the renderer-agnostic projection produced by `core/state.ts` + `core/physics.ts`: animated needle angles (rpm, speed), gear string, throttle/brake fills [0,1], g-dot position, redline factor.
+`InstrumentState` is the renderer-agnostic projection produced by `core/state.ts` + `core/physics.ts`: animated needle angles (rpm, speed), gear string, throttle/brake fills [0,1], g-dot position, redline factor.
 
 ### Raw renderer passes (Phase 1)
 
-1. **Instrument pass** — a single fullscreen-quad fragment shader (`instruments.wgsl`) draws *all* analog instruments analytically via SDF functions from `sdf.wgsl`, driven by one uniform block (positions/radii/angles/fills/colours from `spec.ts` + `ClusterState`). Minimal geometry, maximal "shader showcase," and the SDF functions are exactly what Phase 2 reuses.
+1. **Instrument pass** — a single fullscreen-quad fragment shader (`instruments.wgsl`) draws *all* analog instruments analytically via SDF functions from `sdf.wgsl`, driven by one uniform block (positions/radii/angles/fills/colours from `spec.ts` + `InstrumentState`). Minimal geometry, maximal "shader showcase," and the SDF functions are exactly what Phase 2 reuses.
 2. **Glyph pass** — MSDF textured quads (`glyphs.wgsl`) for speed value, gear digit, `rpm`, and labels. Quads come from `core/msdf/layout.ts`.
 3. **Bloom post** — render passes 1–2 to an offscreen texture; bright-pass (redline ring, needle tip, glow edges) → 2-pass separable blur → additive composite to the swapchain. Tasteful intensity.
 
-### React host (`ClusterCanvas.tsx`)
+### React host (`InstrumentCanvas.tsx`)
 
 Thin. Mounts a `<canvas>`; calls `raw-renderer.init()`. On success, starts an **rAF loop** that reads `useLiveStore.getState().latest` each frame (imperative — no React re-render per frame, same pattern as `Sparkline`), runs `physics.step` toward the new targets, and calls `render(state)`. Handles `devicePixelRatio`, `ResizeObserver` → `resize()`, and `device.lost` → re-init or notice. Cleanup cancels rAF and calls `destroy()`. On init failure renders the WebGPU-required notice instead of the canvas.
 
@@ -132,9 +132,9 @@ Ship a **pre-generated MSDF atlas** (`atlas.png` + `atlas.json`) for one font, c
 
 ## Phase 2 (future, documented): R3F / Three.js WebGPURenderer
 
-A second `ClusterRenderer` implementation under `client/src/cluster/three/`, using `@react-three/fiber` with Three's `WebGPURenderer` and **TSL**. Selected by the host via config/route param for side-by-side comparison.
+A second `InstrumentRenderer` implementation under `client/src/instrument/three/`, using `@react-three/fiber` with Three's `WebGPURenderer` and **TSL**. Selected by the host via config/route param for side-by-side comparison.
 
-- **Shared, reused as-is:** all of `core/` — `spec.ts`, `palette.ts`, `scale.ts`, `physics.ts`, `state.ts`, the MSDF atlas + `layout.ts`. The `ClusterState` contract and `ClusterRenderer` interface are identical.
+- **Shared, reused as-is:** all of `core/` — `spec.ts`, `palette.ts`, `scale.ts`, `physics.ts`, `state.ts`, the MSDF atlas + `layout.ts`. The `InstrumentState` contract and `InstrumentRenderer` interface are identical.
 - **Partially reused:** the pure WGSL SDF/math functions in `sdf.wgsl` can be embedded via TSL `wgslFn` nodes.
 - **NOT portable (rewritten per renderer):** full shader *programs*, bind-group/uniform/vertex plumbing, and the pass graph — Three owns these via TSL. Three gives bloom/MSAA/resize/device management and WebGL fallback "for free" in exchange.
 - **Note:** Three's WebGPURenderer + TSL is newer and churns more than raw WebGPU; acceptable for this single-user LAN tool.
@@ -142,18 +142,18 @@ A second `ClusterRenderer` implementation under `client/src/cluster/three/`, usi
 ## File manifest (Phase 1)
 
 **New:**
-- `client/src/routes/live.cluster.tsx`
-- `client/src/cluster/renderer.ts`
-- `client/src/cluster/core/{spec,palette,scale,physics,state}.ts`
-- `client/src/cluster/core/sdf.wgsl`
-- `client/src/cluster/core/msdf/{atlas.png,atlas.json,layout.ts}`
-- `client/src/cluster/raw/raw-renderer.ts`
-- `client/src/cluster/raw/passes/{instruments,glyphs,bloom}.wgsl`
-- `client/src/cluster/ClusterCanvas.tsx`
+- `client/src/routes/live.instrument.tsx`
+- `client/src/instrument/renderer.ts`
+- `client/src/instrument/core/{spec,palette,scale,physics,state}.ts`
+- `client/src/instrument/core/sdf.wgsl`
+- `client/src/instrument/core/msdf/{atlas.png,atlas.json,layout.ts}`
+- `client/src/instrument/raw/raw-renderer.ts`
+- `client/src/instrument/raw/passes/{instruments,glyphs,bloom}.wgsl`
+- `client/src/instrument/InstrumentCanvas.tsx`
 - Vitest config + `*.test.ts` for the core modules.
 
 **Changed:**
-- `client/src/routes/live.tsx` — add the HUD/Cluster segmented toggle in the header (additive; HUD body unchanged).
+- `client/src/routes/live.tsx` — add the HUD/Instrument segmented toggle in the header (additive; HUD body unchanged).
 - `client/package.json` — add `vitest` (+ any WGSL import handling for Vite).
 
 ## Risks / open items

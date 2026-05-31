@@ -1,5 +1,5 @@
-/** Per-frame, renderer-agnostic description of the cluster. */
-export interface ClusterState {
+/** Per-frame, renderer-agnostic description of the instrument. */
+export interface InstrumentState {
   speedKmh: number;       // for the digital readout
   rpm: number;            // raw, for the rpm caption
   speedAngle: number;     // radians within the dial sweep (0 at sweep start)
@@ -17,9 +17,9 @@ export interface RendererOpts {
   colors?: Partial<import("./core/palette").Palette>;
 }
 
-export interface ClusterRenderer {
+export interface InstrumentRenderer {
   init(canvas: HTMLCanvasElement, opts: RendererOpts): Promise<void>;
-  render(state: ClusterState): void;
+  render(state: InstrumentState): void;
   resize(width: number, height: number, dpr: number): void;
   destroy(): void;
 }

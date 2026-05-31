@@ -51,7 +51,7 @@ or what new questions surfaced.
 
 ### `Gear` encoding (uint8)
 - **Resolved (2026-06-01):** Forza sends `Gear` as a `uint8`: **0 = reverse**, `1..n` = forward gears. No distinct neutral value is signalled. Confirmed live — reversing reports gear `0`. (It bit us twice: the gear had been mislabelled "N" for `0`, with a separate bogus "11 = R" guess in the HUD.)
-- **Code dep:** client `gearLabel` (`client/src/utils/format.ts`, shared by the HUD + WebGPU cluster) maps `0 → "R"`, else the number. Server `GearShift` enrich already treats `0` as a non-forward gear (`prev.Gear != 0 && t.Gear != 0`).
+- **Code dep:** client `gearLabel` (`client/src/utils/format.ts`, shared by the HUD + WebGPU instrument view) maps `0 → "R"`, else the number. Server `GearShift` enrich already treats `0` as a non-forward gear (`prev.Gear != 0 && t.Gear != 0`).
 - **Open:** whether any title/mode reports a distinct neutral (and what value) — unconfirmed; treat `0` as reverse until a neutral capture says otherwise.
 
 ---
