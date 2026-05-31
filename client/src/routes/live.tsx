@@ -1,10 +1,10 @@
 /* Hallmark · component: live-hud · genre: dashboard · theme: Glass */
 import { Chip } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Sparkline } from "~/components/Sparkline";
-import { formatCount } from "~/utils/format";
+import { formatCount, gearLabel } from "~/utils/format";
 import { useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
 import type { TickFrame } from "~/types/tick.generated";
@@ -17,21 +17,24 @@ export const Route = createFileRoute("/live")({
  *  ~60Hz so 2 s of silence reliably means the game stopped sending. */
 const STALE_AFTER_MS = 2000;
 
-function LiveRoute() {
-  // Subscribe individually to minimise re-render fan-out — push() touches
-  // ring on every frame but only `latest` and `lastPushedAt` matter for the
-  // HUD body, and `connected` is independent.
-  const latest = useLiveStore((s) => s.latest);
-  const lastPushedAt = useLiveStore((s) => s.lastPushedAt);
-  const connected = useLiveStore((s) => s.connected);
-
+/** Owns the live WebSocket lifecycle for a route: opens on mount, closes on
+ *  unmount. Both the HUD and Instrument routes call this so each maintains its own
+ *  connection — switching between them reconnects rather than tearing the only
+ *  socket down (the HUD route used to be the sole owner). */
+export function useLiveSocket(): void {
   useEffect(() => {
     const socket = new LiveSocket("/api/v1/live");
     socket.start();
     return () => socket.stop();
   }, []);
+}
 
-  // Re-render every 500ms so the stale indicator updates without ticks.
+/** Subscribes to connection state and re-evaluates staleness every 500 ms so
+ *  the status pill updates without needing a new tick frame. */
+export function useLiveStatus(): { connected: boolean; fresh: boolean } {
+  const connected = useLiveStore((s) => s.connected);
+  const lastPushedAt = useLiveStore((s) => s.lastPushedAt);
+
   const [, force] = useState(0);
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 500);
@@ -39,6 +42,17 @@ function LiveRoute() {
   }, []);
 
   const fresh = lastPushedAt !== null && Date.now() - lastPushedAt < STALE_AFTER_MS;
+  return { connected, fresh };
+}
+
+function LiveRoute() {
+  // Subscribe individually to minimise re-render fan-out — push() touches
+  // ring on every frame but only `latest` and `lastPushedAt` matter for the
+  // HUD body, and `connected` is independent.
+  const latest = useLiveStore((s) => s.latest);
+
+  useLiveSocket();
+  const { connected, fresh } = useLiveStatus();
 
   return (
     <section className="flex flex-col gap-8">
@@ -47,7 +61,10 @@ function LiveRoute() {
           <span className="text-xs font-medium tracking-wider text-muted uppercase">Realtime</span>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Live HUD</h1>
         </div>
-        <StatusPill connected={connected} fresh={fresh} />
+        <div className="flex items-center gap-3">
+          <LiveViewToggle active="hud" />
+          <StatusPill connected={connected} fresh={fresh} />
+        </div>
       </header>
 
       {!latest && <WaitingPanel connected={connected} />}
@@ -56,7 +73,7 @@ function LiveRoute() {
   );
 }
 
-function StatusPill({ connected, fresh }: { connected: boolean; fresh: boolean }) {
+export function StatusPill({ connected, fresh }: { connected: boolean; fresh: boolean }) {
   if (connected && fresh) {
     return (
       <Chip size="sm" variant="soft" color="success">
@@ -172,7 +189,7 @@ function SpeedCard({ kmh, gear, fresh }: { kmh: number; gear: number; fresh: boo
             className="text-5xl leading-none font-semibold text-foreground tabular-nums"
             style={{ opacity: fresh ? 1 : 0.5 }}
           >
-            {gear === 0 ? "N" : gear === 11 ? "R" : gear}
+            {gearLabel(gear)}
           </span>
         </div>
       </div>
@@ -291,6 +308,26 @@ function GMetric({ label, value }: { label: string; value: number }) {
         </span>
         <span className="text-xs text-muted">G</span>
       </div>
+    </div>
+  );
+}
+
+export function LiveViewToggle({ active }: { active: "hud" | "instrument" }) {
+  const base = "rounded-lg px-3 py-1 text-xs font-medium";
+  return (
+    <div className="flex gap-1 rounded-xl bg-surface p-1 shadow-surface">
+      <Link
+        to="/live"
+        className={`${base} ${active === "hud" ? "bg-accent-soft text-foreground" : "text-muted"}`}
+      >
+        HUD
+      </Link>
+      <Link
+        to="/live/instrument"
+        className={`${base} ${active === "instrument" ? "bg-accent-soft text-foreground" : "text-muted"}`}
+      >
+        Instrument
+      </Link>
     </div>
   );
 }

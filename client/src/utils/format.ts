@@ -53,3 +53,13 @@ export function formatDurationNS(startNS: number, endNS: number | null): string 
 export function formatCount(n: number): string {
   return n.toLocaleString();
 }
+
+/**
+ * Forza Data Out sends Gear as a uint8: 0 = reverse, 1..n = forward gears (it
+ * does not signal neutral distinctly). Confirmed against a live reverse capture
+ * — gear 0 must read "R". Single source of truth shared by the HUD + instrument.
+ */
+export function gearLabel(g: number): string {
+  if (g === 0) return "R";
+  return String(g);
+}

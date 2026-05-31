@@ -14,6 +14,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions.index'
 import { Route as StintsStintIdRouteImport } from './routes/stints.$stintId'
 import { Route as SessionsSessionIdRouteImport } from './routes/sessions.$sessionId'
+import { Route as LiveInstrumentRouteImport } from './routes/live_.instrument'
 
 const LiveRoute = LiveRouteImport.update({
   id: '/live',
@@ -40,10 +41,16 @@ const SessionsSessionIdRoute = SessionsSessionIdRouteImport.update({
   path: '/sessions/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LiveInstrumentRoute = LiveInstrumentRouteImport.update({
+  id: '/live_/instrument',
+  path: '/live/instrument',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
+  '/live/instrument': typeof LiveInstrumentRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/stints/$stintId': typeof StintsStintIdRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
+  '/live/instrument': typeof LiveInstrumentRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/stints/$stintId': typeof StintsStintIdRoute
   '/sessions': typeof SessionsIndexRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
+  '/live_/instrument': typeof LiveInstrumentRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/stints/$stintId': typeof StintsStintIdRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -68,15 +77,23 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/live'
+    | '/live/instrument'
     | '/sessions/$sessionId'
     | '/stints/$stintId'
     | '/sessions/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/live' | '/sessions/$sessionId' | '/stints/$stintId' | '/sessions'
+  to:
+    | '/'
+    | '/live'
+    | '/live/instrument'
+    | '/sessions/$sessionId'
+    | '/stints/$stintId'
+    | '/sessions'
   id:
     | '__root__'
     | '/'
     | '/live'
+    | '/live_/instrument'
     | '/sessions/$sessionId'
     | '/stints/$stintId'
     | '/sessions/'
@@ -85,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LiveRoute: typeof LiveRoute
+  LiveInstrumentRoute: typeof LiveInstrumentRoute
   SessionsSessionIdRoute: typeof SessionsSessionIdRoute
   StintsStintIdRoute: typeof StintsStintIdRoute
   SessionsIndexRoute: typeof SessionsIndexRoute
@@ -127,12 +145,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/live_/instrument': {
+      id: '/live_/instrument'
+      path: '/live/instrument'
+      fullPath: '/live/instrument'
+      preLoaderRoute: typeof LiveInstrumentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LiveRoute: LiveRoute,
+  LiveInstrumentRoute: LiveInstrumentRoute,
   SessionsSessionIdRoute: SessionsSessionIdRoute,
   StintsStintIdRoute: StintsStintIdRoute,
   SessionsIndexRoute: SessionsIndexRoute,
