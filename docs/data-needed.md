@@ -12,15 +12,17 @@ or what new questions surfaced.
 ## FH6 wire format (`server/internal/ingest/parser/fh6.go`)
 
 ### Byte 323 — trailing reserved
-- **Unknown:** semantics of last packet byte.
-- **In captures so far:** always `0` across 9565 race-on packets (free-roam only).
-- **Needs:** structured-race captures (lap > 0), FM-style event captures, drift / off-track moments. Any non-zero value reveals what it tracks.
-- **Code dep:** `decodeFH6` reads + discards. Once meaning known, add field to `tick.Tick` (additive per ADR 0003) + update decoder.
+- **Resolved (2026-05-31):** still `0` across **716,338 race-on packets** from a real circuit+sprint capture (multi-car field, laps 0–3). Confirmed reserved padding, not a field. Decoder reads + discards it with a comment to that effect; not added to `tick.Tick`.
+
+### Tail input bytes — DrivingLine / AIBrakeDifference (offsets 321, 322)
+- **Resolved (2026-05-31):** previously read-and-discarded in `decodeHorizonTail`. Now decoded into `tick.DrivingLine` and `tick.AIBrakeDifference` (both `int8`, additive per ADR 0003).
+- **Observed ranges (716k race packets):** DrivingLine `-1..65` (a signed index/angle, NOT a 0..1 normalized fraction despite Forza's "Normalized…" wire name); AIBrakeDifference `-127..122` (signed; player-vs-AI braking delta).
+- **Open:** exact units/semantics still uninterpreted — values are stored raw. Cross-reference DrivingLine against on-screen suggested-line state, and AIBrakeDifference against a known AI-comparison scenario, to pin meaning.
 
 ### `CarGroup` enum mapping
 - **Unknown:** what each integer means (S1, A, B, C, … ?).
-- **In captures so far:** only value `25` observed (single car, ordinal 3773, B-class, 4-cyl).
-- **Needs:** captures with 5–10 different cars across class spectrum (D / C / B / A / S1 / S2 / X). Cross-reference `CarGroup` with the in-game class label.
+- **In captures so far:** single-car free-roam showed only `25`; the 2026-05-31 multi-car race capture shows distinct values `{12, 13, 25, 26, 31, 33, 35, 38, 48}`.
+- **Needs:** cross-reference each value with the in-game class/division label per car (D / C / B / A / S1 / S2 / X). Range is now known; the mapping is not.
 - **Code dep:** `tick.CarGroup` is `int32`; consider a typed enum once mapping known.
 
 ### `SmashableVelDiff` / `SmashableMass` semantics
@@ -40,9 +42,12 @@ or what new questions surfaced.
 - **Code dep:** none yet; matters for fuel-strategy analysis if added.
 
 ### Race-only fields (BestLap / LastLap / CurrentLap / LapNumber / RacePosition)
-- **In captures so far:** all zero — capture was free-roam.
-- **Needs:** structured race (circuit event with ≥ 2 laps).
-- **Code dep:** `resolveStintType` distinguishes sprint vs circuit by LapNumber range; Turn detection (per ADR 0008) runs on circuit and sprint stints. Both need confirmed race data.
+- **Resolved (2026-05-31):** confirmed against a real circuit+sprint capture (716k race-on packets):
+  - `RacePosition` u8: `0..10` (an 11-car field) — a genuine race-vs-freeroam signal.
+  - `LapNumber` u16: reached `3` on the circuit race — confirms sprint/circuit split logic.
+  - `BestLap`/`LastLap` f32: `0` until a lap completes, then up to `45.6`s.
+  - `CurrentLap` f32: `0..233`s within a lap; `CurrentRaceTime` f32 nonzero in 716321/716338 race packets — the race discriminator holds.
+- **Follow-up (deferred):** these could become *additional* recording-confidence gates (e.g. require `RacePosition > 0`), but solo time-trial / rivals modes may report `0`; confirm those modes before gating on position.
 
 ---
 
