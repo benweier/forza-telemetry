@@ -41,9 +41,12 @@ export class RawClusterRenderer implements ClusterRenderer {
   private blurPipeline!: GPURenderPipeline;
   private compositePipeline!: GPURenderPipeline;
 
-  // Shared sampler + bloom uniform buffer
+  // Shared sampler + per-pass bloom uniform buffers
   private bloomSampler!: GPUSampler;
-  private bloomUbo!: GPUBuffer;
+  private brightUBO!: GPUBuffer;
+  private blurHUBO!: GPUBuffer;
+  private blurVUBO!: GPUBuffer;
+  private compositeUBO!: GPUBuffer;
 
   async init(canvas: HTMLCanvasElement, opts: RendererOpts): Promise<void> {
     const res = await acquireDevice(canvas);
@@ -82,11 +85,13 @@ export class RawClusterRenderer implements ClusterRenderer {
       addressModeV: "clamp-to-edge",
     });
 
-    // Shared uniform buffer for bloom pass parameters
-    this.bloomUbo = this.device.createBuffer({
-      size: BLOOM_UBO_SIZE,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    // Per-pass uniform buffers — each pass gets its own so no aliasing occurs
+    // within a single submit where all passes execute after the final writeBuffer.
+    const uboUsage = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+    this.brightUBO    = this.device.createBuffer({ size: BLOOM_UBO_SIZE, usage: uboUsage });
+    this.blurHUBO     = this.device.createBuffer({ size: BLOOM_UBO_SIZE, usage: uboUsage });
+    this.blurVUBO     = this.device.createBuffer({ size: BLOOM_UBO_SIZE, usage: uboUsage });
+    this.compositeUBO = this.device.createBuffer({ size: BLOOM_UBO_SIZE, usage: uboUsage });
 
     // Bright pass: samples sceneTex (tex0), writes bloomA (rgba16float half-res)
     // layout:"auto" — bright entry point doesn't reference tex1, so binding 2 is absent
@@ -190,16 +195,15 @@ export class RawClusterRenderer implements ClusterRenderer {
     }
 
     // ── Pass 2: Bright → bloomA (half-res) ───────────────────────────────
-    // texel = 1/halfW, 1/halfH (output target pixel size)
-    // dir = (0,0), threshold, intensity
-    this.writeBloomUbo(1 / halfW, 1 / halfH, 0, 0, BLOOM_THRESHOLD, BLOOM_INTENSITY);
+    // texel = 1/halfW, 1/halfH (output target pixel size); dir unused (0,0)
+    this.writeBloomUbo(this.brightUBO, 1 / halfW, 1 / halfH, 0, 0, BLOOM_THRESHOLD, 1.0);
     {
       const brightBG = this.device.createBindGroup({
         layout: this.brightPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: this.bloomSampler },
           { binding: 1, resource: this.sceneTex.createView() },
-          { binding: 3, resource: { buffer: this.bloomUbo } },
+          { binding: 3, resource: { buffer: this.brightUBO } },
         ],
       });
       const pass = encoder.beginRenderPass({
@@ -217,15 +221,15 @@ export class RawClusterRenderer implements ClusterRenderer {
     }
 
     // ── Pass 3: Blur H: bloomA → bloomB (half-res) ───────────────────────
-    // dir = (1,0) — horizontal blur
-    this.writeBloomUbo(1 / halfW, 1 / halfH, 1, 0, BLOOM_THRESHOLD, BLOOM_INTENSITY);
+    // texel = 1/halfW, 1/halfH; dir = (1,0) — horizontal blur
+    this.writeBloomUbo(this.blurHUBO, 1 / halfW, 1 / halfH, 1, 0, 0, 0);
     {
       const blurHBG = this.device.createBindGroup({
         layout: this.blurPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: this.bloomSampler },
           { binding: 1, resource: this.bloomA.createView() },
-          { binding: 3, resource: { buffer: this.bloomUbo } },
+          { binding: 3, resource: { buffer: this.blurHUBO } },
         ],
       });
       const pass = encoder.beginRenderPass({
@@ -243,15 +247,15 @@ export class RawClusterRenderer implements ClusterRenderer {
     }
 
     // ── Pass 4: Blur V: bloomB → bloomA (half-res) ───────────────────────
-    // dir = (0,1) — vertical blur
-    this.writeBloomUbo(1 / halfW, 1 / halfH, 0, 1, BLOOM_THRESHOLD, BLOOM_INTENSITY);
+    // texel = 1/halfW, 1/halfH; dir = (0,1) — vertical blur
+    this.writeBloomUbo(this.blurVUBO, 1 / halfW, 1 / halfH, 0, 1, 0, 0);
     {
       const blurVBG = this.device.createBindGroup({
         layout: this.blurPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: this.bloomSampler },
           { binding: 1, resource: this.bloomB.createView() },
-          { binding: 3, resource: { buffer: this.bloomUbo } },
+          { binding: 3, resource: { buffer: this.blurVUBO } },
         ],
       });
       const pass = encoder.beginRenderPass({
@@ -269,8 +273,8 @@ export class RawClusterRenderer implements ClusterRenderer {
     }
 
     // ── Pass 5: Composite: (sceneTex + bloomA) → swapchain ───────────────
-    // texel = 1/width, 1/height (full-res output)
-    this.writeBloomUbo(1 / this.width, 1 / this.height, 0, 0, BLOOM_THRESHOLD, BLOOM_INTENSITY);
+    // texel = 1/width, 1/height (full-res output); intensity = BLOOM_INTENSITY; dir unused
+    this.writeBloomUbo(this.compositeUBO, 1 / this.width, 1 / this.height, 0, 0, 0, BLOOM_INTENSITY);
     {
       const compositeBG = this.device.createBindGroup({
         layout: this.compositePipeline.getBindGroupLayout(0),
@@ -278,7 +282,7 @@ export class RawClusterRenderer implements ClusterRenderer {
           { binding: 0, resource: this.bloomSampler },
           { binding: 1, resource: this.sceneTex.createView() },
           { binding: 2, resource: this.bloomA.createView() },
-          { binding: 3, resource: { buffer: this.bloomUbo } },
+          { binding: 3, resource: { buffer: this.compositeUBO } },
         ],
       });
       const swapView = this.context.getCurrentTexture().createView();
@@ -299,8 +303,9 @@ export class RawClusterRenderer implements ClusterRenderer {
     this.device.queue.submit([encoder.finish()]);
   }
 
-  /** Write bloom uniform buffer: texel(x,y), dir(x,y), threshold, intensity, pad(0,0) */
+  /** Write a per-pass bloom uniform buffer: texel(x,y), dir(x,y), threshold, intensity, pad(0,0) */
   private writeBloomUbo(
+    ubo: GPUBuffer,
     texelX: number,
     texelY: number,
     dirX: number,
@@ -317,13 +322,17 @@ export class RawClusterRenderer implements ClusterRenderer {
     data[5] = intensity;
     data[6] = 0; // pad
     data[7] = 0; // pad
-    this.device.queue.writeBuffer(this.bloomUbo, 0, data);
+    this.device.queue.writeBuffer(ubo, 0, data);
   }
 
   destroy(): void {
     this.sceneTex?.destroy();
     this.bloomA?.destroy();
     this.bloomB?.destroy();
+    this.brightUBO?.destroy();
+    this.blurHUBO?.destroy();
+    this.blurVUBO?.destroy();
+    this.compositeUBO?.destroy();
     this.device?.destroy?.();
   }
 }
