@@ -17,9 +17,13 @@ export interface Targets {
 
 const G_LIMIT = 2.5; // g, for normalizing the g-dot to -1..1
 
+/**
+ * Forza Data Out sends Gear as a uint8: 0 = reverse, 1..n = forward gears (it
+ * does not signal neutral distinctly). Confirmed against a live reverse capture
+ * — gear 0 must read "R", not "N".
+ */
 export function gearLabel(g: number): string {
-  if (g < 0) return "R";
-  if (g === 0) return "N";
+  if (g === 0) return "R";
   return String(g);
 }
 
@@ -30,13 +34,11 @@ export function targetsFromTick(t: TickFrame, fallbackRmx = 8000): Targets {
     rpm: t.rpm ?? 0,
     throttle: t.tp ?? 0,
     brake: t.bp ?? 0,
-    // Felt-force ("g-ball"): the dot shows where inertia throws a ball.
-    // Lateral — Forza AccelerationX is +right, so a right turn (lg>0) must throw
-    // the dot LEFT → negate. Longitudinal — AccelerationZ is +forward, so it
-    // already reads right: throttle (lng>0) sits the dot low (thrown back),
-    // braking (lng<0) raises it (thrown forward); no negation.
+    // Felt-force ("g-ball"): the dot shows where inertia throws a ball, which
+    // is opposite the acceleration vector — so negate BOTH axes. Right turn →
+    // thrown left; accelerating → thrown back; braking → thrown forward.
     gx: Math.max(-1, Math.min(1, (-(t.lg ?? 0)) / G_LIMIT)),
-    gy: Math.max(-1, Math.min(1, (t.lng ?? 0) / G_LIMIT)),
+    gy: Math.max(-1, Math.min(1, (-(t.lng ?? 0)) / G_LIMIT)),
     gear: gearLabel(t.g ?? 0),
     rmx,
   };

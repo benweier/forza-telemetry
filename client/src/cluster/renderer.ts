@@ -8,8 +8,8 @@ export interface ClusterState {
   gear: string;           // "R" | "N" | "1".."n"
   throttle: number;       // 0..1
   brake: number;          // 0..1
-  gx: number;             // g-ball displacement -1..1 (felt force; positive = dot right = left turn)
-  gy: number;             // g-ball displacement -1..1 (felt force; positive = dot down = throttle)
+  gx: number;             // g-ball displacement -1..1 (felt force = −lateral accel)
+  gy: number;             // g-ball displacement -1..1 (felt force = −longitudinal accel)
 }
 
 export interface RendererOpts {
