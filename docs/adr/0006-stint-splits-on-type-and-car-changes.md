@@ -1,10 +1,13 @@
 # Stint boundaries split on Stint Type and Car changes
 
 > **Revision (post-implementation):** the discard criteria were widened beyond
-> the original sub-2s rule. A closed Stint is now also discarded if its **Stint
-> Type** is `idle` (menus / loading / pause carry no analysable telemetry) or
-> if it never saw a real **Car** (`car_ordinal` stays 0 — a session-opened-but-
-> -no-gameplay artifact). Splitting still happens on every type/car transition
+> the original sub-2s rule. A closed Stint is now also discarded if it carries
+> fewer than `minTicks` samples (default 180 ≈ 3s at 60Hz — a data-density floor
+> independent of wall-clock, since a 2s+ stint can still arrive thin on packet
+> loss), if its **Stint Type** is `idle` (menus / loading / pause carry no
+> analysable telemetry), or if it never saw a real **Car** (`car_ordinal` stays
+> 0 — a session-opened-but-no-gameplay artifact). Splitting still happens on
+> every type/car transition
 > as below; idle stints are simply not *persisted*. A one-time idempotent
 > startup sweep removes idle / no-car stints (plus their child rows and Parquet
 > files) left in the DB by older builds. See `storage/cleanup.go` and
