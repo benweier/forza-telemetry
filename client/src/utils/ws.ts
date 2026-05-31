@@ -1,6 +1,6 @@
 import { Unpackr } from "msgpackr";
-import type { TickFrame } from "~/types/tick.generated";
 import { useLiveStore } from "~/utils/live-store";
+import type { TickFrame } from "~/types/tick.generated";
 
 const ENV_HELLO = 1;
 const ENV_TICK = 2;

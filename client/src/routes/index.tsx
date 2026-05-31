@@ -11,22 +11,22 @@ function HomeRoute() {
   return (
     <section className="flex flex-col gap-10">
       <header className="flex flex-col gap-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted">
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">
           Local LAN telemetry
         </span>
-        <h1 className="text-4xl font-semibold leading-tight tracking-tight text-foreground">
+        <h1 className="text-4xl leading-tight font-semibold tracking-tight text-foreground">
           Forza Telemetry
         </h1>
         <p className="max-w-prose text-base text-muted">
-          Ingests Forza Horizon Data Out over UDP, splits the stream into stints,
-          and surfaces live and historical analytics for solo race analysis.
+          Ingests Forza Horizon Data Out over UDP, splits the stream into stints, and surfaces live
+          and historical analytics for solo race analysis.
         </p>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
           to="/live"
-          className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 no-underline text-foreground shadow-surface transition-colors hover:bg-surface-hover"
+          className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 text-foreground no-underline shadow-surface transition-colors hover:bg-surface-hover"
         >
           <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-soft-foreground">
             <Icon icon="lucide:square-activity" className="size-5" />
@@ -39,7 +39,7 @@ function HomeRoute() {
 
         <Link
           to="/sessions"
-          className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 no-underline text-foreground shadow-surface transition-colors hover:bg-surface-hover"
+          className="group flex flex-col gap-3 rounded-2xl bg-surface p-6 text-foreground no-underline shadow-surface transition-colors hover:bg-surface-hover"
         >
           <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-soft-foreground">
             <Icon icon="lucide:layers-3" className="size-5" />
@@ -53,12 +53,12 @@ function HomeRoute() {
 
       <div className="flex items-center gap-3 pt-4">
         <Button variant="primary" onPress={() => {}}>
-          <Link to="/live" className="no-underline text-inherit">
+          <Link to="/live" className="text-inherit no-underline">
             Open Live HUD
           </Link>
         </Button>
         <Button variant="outline" onPress={() => {}}>
-          <Link to="/sessions" className="no-underline text-inherit">
+          <Link to="/sessions" className="text-inherit no-underline">
             Browse Sessions
           </Link>
         </Button>

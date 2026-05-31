@@ -30,10 +30,7 @@ export function AppShell({ children }: AppShellProps) {
     >
       <Sidebar>
         <Sidebar.Header>
-          <Link
-            to="/"
-            className="flex items-center gap-2 px-2 py-2 no-underline text-foreground"
-          >
+          <Link to="/" className="flex items-center gap-2 px-2 py-2 text-foreground no-underline">
             <span
               aria-hidden
               className="grid size-7 place-items-center rounded-md bg-accent text-accent-foreground"
@@ -70,7 +67,7 @@ export function AppShell({ children }: AppShellProps) {
           <div className="flex items-center gap-2 px-2 py-2">
             <span
               aria-hidden
-              className="grid size-7 place-items-center rounded-full bg-surface-secondary text-foreground/70 text-xs"
+              className="grid size-7 place-items-center rounded-full bg-surface-secondary text-xs text-foreground/70"
             >
               LO
             </span>
@@ -83,9 +80,7 @@ export function AppShell({ children }: AppShellProps) {
       </Sidebar>
 
       <Sidebar.Main className="bg-background">
-        <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-12 sm:px-8">
-          {children}
-        </div>
+        <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-12 sm:px-8">{children}</div>
       </Sidebar.Main>
     </Sidebar.Provider>
   );
