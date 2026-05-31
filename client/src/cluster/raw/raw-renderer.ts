@@ -3,6 +3,10 @@ import { DEFAULT_PALETTE, type Palette } from "../core/palette";
 import { acquireDevice } from "./device";
 import instrumentsWGSL from "./passes/instruments.wgsl?raw";
 import bloomWGSL from "./passes/bloom.wgsl?raw";
+import glyphsWGSL from "./passes/glyphs.wgsl?raw";
+import atlasJson from "../core/msdf/atlas.json";
+import atlasUrl from "../core/msdf/atlas.png";
+import { buildGlyphMap, layoutText, measureText, type RawAtlas } from "../core/msdf/layout";
 import { SPEC } from "../core/spec";
 
 const BLOOM_THRESHOLD = 0.6;
@@ -17,6 +21,10 @@ const BLOOM_INTENSITY = 0.9;
  *  total: 32 bytes
  */
 const BLOOM_UBO_SIZE = 32;
+
+/** Max glyphs in the dynamic vertex buffer. 6 verts per glyph, 32 bytes per vert. */
+const MAX_GLYPHS = 64;
+const BYTES_PER_VERT = 32; // posClip(2*4) + uv(2*4) + color(4*4) = 32
 
 export class RawClusterRenderer implements ClusterRenderer {
   private device!: GPUDevice;
@@ -47,6 +55,15 @@ export class RawClusterRenderer implements ClusterRenderer {
   private blurHUBO!: GPUBuffer;
   private blurVUBO!: GPUBuffer;
   private compositeUBO!: GPUBuffer;
+
+  // Text pass
+  private glyphPipeline!: GPURenderPipeline;
+  private glyphSampler!: GPUSampler;
+  private atlasTex!: GPUTexture;
+  private glyphBindGroup!: GPUBindGroup;
+  private glyphVertexBuf!: GPUBuffer;
+  private glyphMap!: Map<string, import("../core/msdf/layout").RawGlyph>;
+  private atlasCommon!: RawAtlas["common"];
 
   async init(canvas: HTMLCanvasElement, opts: RendererOpts): Promise<void> {
     const res = await acquireDevice(canvas);
@@ -118,6 +135,83 @@ export class RawClusterRenderer implements ClusterRenderer {
       vertex: { module: bloomModule, entryPoint: "vs" },
       fragment: { module: bloomModule, entryPoint: "composite", targets: [{ format: this.format }] },
       primitive: { topology: "triangle-list" },
+    });
+
+    // ── Text (MSDF) pass ─────────────────────────────────────────────────
+    const rawAtlas = atlasJson as unknown as RawAtlas;
+    this.glyphMap = buildGlyphMap(rawAtlas);
+    this.atlasCommon = rawAtlas.common;
+
+    // Load atlas PNG into GPUTexture
+    const img = await createImageBitmap(await (await fetch(atlasUrl)).blob());
+    this.atlasTex = this.device.createTexture({
+      size: [img.width, img.height],
+      format: "rgba8unorm",
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    this.device.queue.copyExternalImageToTexture(
+      { source: img },
+      { texture: this.atlasTex },
+      [img.width, img.height],
+    );
+
+    // Linear sampler for atlas
+    this.glyphSampler = this.device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+
+    // Text render pipeline: interleaved vertex buffer, alpha blending over swapchain
+    const glyphModule = this.device.createShaderModule({ code: glyphsWGSL });
+    this.glyphPipeline = this.device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: glyphModule,
+        entryPoint: "vs",
+        buffers: [
+          {
+            arrayStride: BYTES_PER_VERT,
+            attributes: [
+              { shaderLocation: 0, offset: 0,  format: "float32x2" }, // posClip
+              { shaderLocation: 1, offset: 8,  format: "float32x2" }, // uv
+              { shaderLocation: 2, offset: 16, format: "float32x4" }, // color
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: glyphModule,
+        entryPoint: "fs",
+        targets: [
+          {
+            format: this.format,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one",       dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          },
+        ],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.glyphBindGroup = this.device.createBindGroup({
+      layout: this.glyphPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: this.glyphSampler },
+        { binding: 1, resource: this.atlasTex.createView() },
+      ],
+    });
+
+    // Dynamic vertex buffer: MAX_GLYPHS * 6 verts * BYTES_PER_VERT
+    this.glyphVertexBuf = this.device.createBuffer({
+      size: MAX_GLYPHS * 6 * BYTES_PER_VERT,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -285,7 +379,8 @@ export class RawClusterRenderer implements ClusterRenderer {
           { binding: 3, resource: { buffer: this.compositeUBO } },
         ],
       });
-      const swapView = this.context.getCurrentTexture().createView();
+      const swapTex = this.context.getCurrentTexture();
+      const swapView = swapTex.createView();
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: swapView,
@@ -298,9 +393,154 @@ export class RawClusterRenderer implements ClusterRenderer {
       pass.setBindGroup(0, compositeBG);
       pass.draw(3);
       pass.end();
+
+      // ── Pass 6: Text (MSDF) drawn over composite (loadOp:"load") ─────────
+      const textVerts = this.buildTextVerts(state);
+      if (textVerts.vertCount > 0) {
+        this.device.queue.writeBuffer(this.glyphVertexBuf, 0, textVerts.data, 0, textVerts.vertCount * (BYTES_PER_VERT / 4));
+        const textPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: swapTex.createView(),
+            loadOp: "load",
+            storeOp: "store",
+          }],
+        });
+        textPass.setPipeline(this.glyphPipeline);
+        textPass.setBindGroup(0, this.glyphBindGroup);
+        textPass.setVertexBuffer(0, this.glyphVertexBuf);
+        textPass.draw(textVerts.vertCount);
+        textPass.end();
+      }
     }
 
     this.device.queue.submit([encoder.finish()]);
+  }
+
+  /**
+   * Build a Float32Array of interleaved vertex data for all text labels.
+   * Each vertex: posClip(x,y), uv(u,v), color(r,g,b,a) — 8 floats = 32 bytes.
+   * Each glyph quad = 6 vertices (2 triangles).
+   *
+   * Coordinate conventions:
+   *   - anchorNX/anchorNY are 0..1 fractions of canvas device-px dims.
+   *   - Device px: anchorX = anchorNX * this.width, anchorY = anchorNY * this.height.
+   *   - Clip: xClip = (px / this.width)  * 2 - 1
+   *           yClip = 1 - (py / this.height) * 2   (Y flipped: GPU clip +y is up)
+   *   - fontPx sets the rendered em-height relative to atlas lineHeight.
+   *   - scale = fontPx / atlasCommon.lineHeight
+   *   - Text is centered horizontally at anchor; baselines placed so the
+   *     top of the line sits at anchorY - fontPx*0.5 (i.e. anchor is the
+   *     vertical middle of the run).
+   */
+  private buildTextVerts(state: ClusterState): { data: Float32Array; vertCount: number } {
+    const floatsPerVert = BYTES_PER_VERT / 4; // 8
+    const data = new Float32Array(MAX_GLYPHS * 6 * floatsPerVert);
+    let vertCount = 0;
+
+    const mn = Math.min(this.width, this.height);
+
+    const appendRun = (
+      text: string,
+      anchorNX: number,
+      anchorNY: number,
+      fontPx: number,
+      color: [number, number, number, number],
+      align: "center" | "left" = "center",
+    ) => {
+      const scale = fontPx / this.atlasCommon.lineHeight;
+      const quads = layoutText(text, this.glyphMap, { common: this.atlasCommon, chars: [] }, scale);
+      const totalWidth = measureText(text, this.glyphMap, scale);
+
+      // Anchor in device px
+      const anchorX = anchorNX * this.width;
+      const anchorY = anchorNY * this.height;
+
+      // Horizontal start: center or left-align
+      const startX = align === "center" ? anchorX - totalWidth * 0.5 : anchorX;
+      // Vertical: place so the middle of the glyph run (lineHeight/2 from top) sits at anchorY
+      const startY = anchorY - (this.atlasCommon.lineHeight * scale) * 0.5;
+
+      for (const q of quads) {
+        if (vertCount + 6 > MAX_GLYPHS * 6) break;
+
+        // Quad corners in device px (Y down)
+        const x0 = startX + q.x;
+        const y0 = startY + q.y;
+        const x1 = x0 + q.w;
+        const y1 = y0 + q.h;
+
+        // Clip space (Y up)
+        const cx0 = (x0 / this.width)  * 2 - 1;
+        const cy0 = 1 - (y0 / this.height) * 2;
+        const cx1 = (x1 / this.width)  * 2 - 1;
+        const cy1 = 1 - (y1 / this.height) * 2;
+
+        const [r, g, b, a] = color;
+
+        // Two triangles: TL, TR, BL, TR, BR, BL
+        const verts: Array<[number, number, number, number]> = [
+          [cx0, cy0, q.u0, q.v0], // TL
+          [cx1, cy0, q.u1, q.v0], // TR
+          [cx0, cy1, q.u0, q.v1], // BL
+          [cx1, cy0, q.u1, q.v0], // TR
+          [cx1, cy1, q.u1, q.v1], // BR
+          [cx0, cy1, q.u0, q.v1], // BL
+        ];
+
+        for (const [px, py, u, v] of verts) {
+          const off = vertCount * floatsPerVert;
+          data[off + 0] = px;
+          data[off + 1] = py;
+          data[off + 2] = u;
+          data[off + 3] = v;
+          data[off + 4] = r;
+          data[off + 5] = g;
+          data[off + 6] = b;
+          data[off + 7] = a;
+          vertCount++;
+        }
+      }
+    };
+
+    const mn_ref = mn; // alias for fontPx calculations
+
+    // Speed — big, centered at gauge center, slightly below middle
+    appendRun(
+      String(Math.round(state.speedKmh)),
+      SPEC.gauge.cx,
+      0.56,
+      mn_ref * 0.13,
+      [0.95, 0.96, 0.98, 1.0],
+    );
+
+    // "KM/H" — small, centered under speed
+    appendRun(
+      "KM/H",
+      SPEC.gauge.cx,
+      0.66,
+      mn_ref * 0.035,
+      [0.5, 0.55, 0.62, 1.0],
+    );
+
+    // RPM — small, centered above gauge middle
+    appendRun(
+      String(Math.round(state.rpm)),
+      SPEC.gauge.cx,
+      0.34,
+      mn_ref * 0.035,
+      [0.6, 0.9, 0.82, 1.0],
+    );
+
+    // Gear — large, in gear tile
+    appendRun(
+      state.gear,
+      SPEC.rail.x,
+      SPEC.rail.gear.cy,
+      mn_ref * 0.09,
+      [0.95, 0.96, 0.98, 1.0],
+    );
+
+    return { data, vertCount };
   }
 
   /** Write a per-pass bloom uniform buffer: texel(x,y), dir(x,y), threshold, intensity, pad(0,0) */
@@ -333,6 +573,8 @@ export class RawClusterRenderer implements ClusterRenderer {
     this.blurHUBO?.destroy();
     this.blurVUBO?.destroy();
     this.compositeUBO?.destroy();
+    this.atlasTex?.destroy();
+    this.glyphVertexBuf?.destroy();
     this.device?.destroy?.();
   }
 }
