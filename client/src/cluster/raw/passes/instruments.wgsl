@@ -26,6 +26,25 @@ fn vs(@builtin(vertex_index) i : u32) -> @builtin(position) vec4f {
 
 const PI = 3.14159265;
 
+fn circleSDF(p: vec2f, r: f32) -> f32 { return length(p) - r; }
+
+fn ticks(p: vec2f, r0: f32, r1: f32, a0: f32, ext: f32, everyRad: f32, halfWidth: f32) -> f32 {
+  let radius = length(p);
+  if (radius < r0 || radius > r1) { return 0.; }
+  var ang = atan2(p.y, p.x); if (ang < 0.) { ang = ang + 2.*PI; }
+  var rel = ang - (a0 % (2.*PI)); if (rel < 0.) { rel = rel + 2.*PI; }
+  if (rel > ext) { return 0.; }
+  let m = rel % everyRad;
+  let d = min(m, everyRad - m);
+  return 1.0 - smoothstep(halfWidth*0.5, halfWidth, d);
+}
+
+fn segSDF(p: vec2f, a: vec2f, b: vec2f, r: f32) -> f32 {
+  let pa = p - a; let ba = b - a;
+  let h = clamp(dot(pa,ba)/dot(ba,ba), 0., 1.);
+  return length(pa - ba*h) - r;
+}
+
 fn arc(p: vec2f, r0: f32, r1: f32, a0: f32, a1: f32) -> f32 {
   let radius = length(p);
   var ang = atan2(p.y, p.x);
@@ -58,5 +77,20 @@ fn fs(@builtin(position) frag : vec4f) -> @location(0) vec4f {
   let band = 1.0 - smoothstep(0.0, aa, dBand);
   let trackCol = vec3f(0.08,0.10,0.13);
   col = mix(col, mix(trackCol, ramp, filled), band);
+
+  // speed dial face
+  let dial = circleSDF(p, 0.40);
+  col = mix(col, vec3f(0.13,0.15,0.20), 1.0 - smoothstep(0., aa, dial));
+  // minor + major ticks (13.5° / 54°)
+  let minorT = ticks(p, 0.34, 0.38, u.sweepStart, u.sweepExtent, 13.5*PI/180., 0.6*PI/180.);
+  let majorT = ticks(p, 0.32, 0.38, u.sweepStart, u.sweepExtent, 54.0*PI/180., 1.2*PI/180.);
+  col = mix(col, u.tick.rgb, max(minorT, majorT) * 0.9);
+  // needle
+  let tip = vec2f(cos(u.speedAngle), sin(u.speedAngle)) * 0.34;
+  let needle = segSDF(p, vec2f(0.,0.), tip, 0.006);
+  col = mix(col, u.ringRed.rgb, 1.0 - smoothstep(0., aa, needle));
+  // hub
+  col = mix(col, vec3f(0.23,0.26,0.30), 1.0 - smoothstep(0., aa, circleSDF(p, 0.02)));
+
   return vec4f(col, 1.0);
 }
