@@ -17,6 +17,18 @@ export const Route = createFileRoute("/live")({
  *  ~60Hz so 2 s of silence reliably means the game stopped sending. */
 const STALE_AFTER_MS = 2000;
 
+/** Owns the live WebSocket lifecycle for a route: opens on mount, closes on
+ *  unmount. Both the HUD and Cluster routes call this so each maintains its own
+ *  connection — switching between them reconnects rather than tearing the only
+ *  socket down (the HUD route used to be the sole owner). */
+export function useLiveSocket(): void {
+  useEffect(() => {
+    const socket = new LiveSocket("/api/v1/live");
+    socket.start();
+    return () => socket.stop();
+  }, []);
+}
+
 /** Subscribes to connection state and re-evaluates staleness every 500 ms so
  *  the status pill updates without needing a new tick frame. */
 export function useLiveStatus(): { connected: boolean; fresh: boolean } {
@@ -39,12 +51,7 @@ function LiveRoute() {
   // HUD body, and `connected` is independent.
   const latest = useLiveStore((s) => s.latest);
 
-  useEffect(() => {
-    const socket = new LiveSocket("/api/v1/live");
-    socket.start();
-    return () => socket.stop();
-  }, []);
-
+  useLiveSocket();
   const { connected, fresh } = useLiveStatus();
 
   return (

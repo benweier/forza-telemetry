@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ClusterCanvas } from "~/cluster/ClusterCanvas";
-import { LiveViewToggle, StatusPill, useLiveStatus } from "./live";
+import { LiveViewToggle, StatusPill, useLiveSocket, useLiveStatus } from "./live";
 
 export const Route = createFileRoute("/live_/cluster")({ component: ClusterRoute });
 
 function ClusterRoute() {
+  useLiveSocket();
   const { connected, fresh } = useLiveStatus();
 
   return (
