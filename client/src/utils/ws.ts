@@ -5,7 +5,11 @@ import { useLiveStore } from "~/utils/live-store";
 const ENV_HELLO = 1;
 const ENV_TICK = 2;
 
-const unpackr = new Unpackr({ useRecords: false });
+// int64AsNumber: epoch-ns timestamps (sts) exceed Number.MAX_SAFE_INTEGER, which
+// msgpackr decodes as BigInt by default — mixing BigInt with number arithmetic in
+// consumers throws. The generated TickFrame types declare these fields as `number`;
+// decode to number to honour that contract (sub-µs precision loss is irrelevant here).
+const unpackr = new Unpackr({ useRecords: false, int64AsNumber: true });
 
 export class LiveSocket {
   private ws: WebSocket | null = null;
