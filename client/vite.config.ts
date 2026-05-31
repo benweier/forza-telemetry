@@ -13,7 +13,7 @@ export default defineConfig({
     // pre-minified `/*#__PURE__*/` comments — they sit at positions
     // rolldown's strict parser ignores. Non-fatal (build still succeeds);
     // just noisy. Filter so real errors remain visible.
-    rollupOptions: {
+    rolldownOptions: {
       onwarn(warning, defaultHandler) {
         if (warning.code === "INVALID_ANNOTATION") return;
         defaultHandler(warning);
@@ -38,4 +38,3 @@ export default defineConfig({
     },
   },
 });
-
