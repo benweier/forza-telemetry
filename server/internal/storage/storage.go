@@ -91,6 +91,10 @@ func (s *Store) NewWriter(now time.Time) (*Writer, error) {
 		logger:       s.logger.With("session", sessionID),
 		gapThreshold: 10 * time.Second,
 		minDuration:  2 * time.Second,
+		// At ~60Hz, 180 ticks ≈ 3s of actual samples — a floor on data density
+		// independent of wall-clock duration (a stint can span 2s+ but arrive
+		// thin if packets dropped). Raise later as real captures inform it.
+		minTicks: 180,
 	}, nil
 }
 

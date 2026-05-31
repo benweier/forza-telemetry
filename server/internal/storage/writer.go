@@ -30,6 +30,7 @@ type Writer struct {
 	logger       *slog.Logger
 	gapThreshold time.Duration
 	minDuration  time.Duration
+	minTicks     int64
 
 	cur *stintState
 }
@@ -209,7 +210,7 @@ func (w *Writer) closeStint(reason string) error {
 	// analysable telemetry and only pollute the history. Each routes to the
 	// same row+parquet removal as the sub-min case — and crucially runs before
 	// aggregateStint, so no child rows (turns / summaries) exist yet to orphan.
-	if cause := discardCause(duration, w.minDuration, cur.category, cur.carOrdinal); cause != "" {
+	if cause := discardCause(duration, w.minDuration, cur.tickCount, w.minTicks, cur.category, cur.carOrdinal); cause != "" {
 		if err := w.discardStint(cur, duration, cause); err != nil && closeErr == nil {
 			closeErr = err
 		}
@@ -291,9 +292,12 @@ func (w *Writer) discardStint(cur *stintState, duration time.Duration, cause str
 // discardCause returns a non-empty reason a freshly-closed stint should be
 // dropped rather than persisted, or "" to keep it. Order is cheapest-first;
 // the returned string is purely for the discard log line.
-func discardCause(duration, minDuration time.Duration, cat stintCategory, carOrdinal int32) string {
+func discardCause(duration, minDuration time.Duration, tickCount, minTicks int64, cat stintCategory, carOrdinal int32) string {
 	if duration < minDuration {
 		return "sub-min duration"
+	}
+	if tickCount < minTicks {
+		return "too few ticks"
 	}
 	if cat == categoryIdle {
 		return "idle"

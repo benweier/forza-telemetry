@@ -134,6 +134,43 @@ func TestWriterDiscardsIdleAndNoCar(t *testing.T) {
 	}
 }
 
+func TestWriterDiscardsThinStint(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+	// Restore the production density floor (startWriter zeroes it). The channel
+	// send below happens-before the writer goroutine reads minTicks at close.
+	writer.minTicks = 180
+
+	// 10 race ticks spread across 3s — over the 2s duration floor, but far
+	// under 180 ticks. Must be discarded for thin data.
+	base := int64(0)
+	for i := 0; i < 10; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(300*time.Millisecond), tickOpts{
+			isRaceOn:        true,
+			currentRaceTime: 10,
+			carOrdinal:      100,
+		}))
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	var n int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.sessionID,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("thin stint (<180 ticks) must be discarded, got %d rows", n)
+	}
+}
+
 func TestWriterCarSplit(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close(context.Background())
@@ -505,6 +542,10 @@ func startWriter(t *testing.T, store *Store) (*writerHandle, *stream.Subscriptio
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
+	// These tests exercise splitting / typing / aggregation with small synthetic
+	// stints (a handful of ticks). Disable the production 180-tick density floor
+	// so those stints persist; TestWriterDiscardsThinStint covers the floor.
+	w.minTicks = 0
 	broker := stream.NewBroker(64)
 	sub := broker.Subscribe(false)
 	ctx, cancel := context.WithCancel(context.Background())
