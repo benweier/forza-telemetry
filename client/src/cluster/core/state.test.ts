@@ -21,8 +21,15 @@ test("buildClusterState produces angles at the sweep start when values are zero"
   expect(cs.rpmAngle).toBeCloseTo(135 * RAD, 5);
 });
 
-test("targetsFromTick clamps g to ±1", () => {
+test("targetsFromTick clamps g to ±1 (lateral negated, longitudinal not)", () => {
   const t = targetsFromTick(tick({ lg: 10, lng: -10 }), 8000);
-  expect(t.gx).toBe(1);
-  expect(t.gy).toBe(-1);
+  expect(t.gx).toBe(-1); // hard right → dot thrown left
+  expect(t.gy).toBe(-1); // braking (lng<0) → dot up
+});
+
+test("targetsFromTick: right turn moves the dot left, braking moves it up", () => {
+  const right = targetsFromTick(tick({ lg: 1.25 }), 8000); // half of G_LIMIT
+  expect(right.gx).toBeCloseTo(-0.5, 5); // negative gx → dot left
+  const braking = targetsFromTick(tick({ lng: -1.25 }), 8000);
+  expect(braking.gy).toBeCloseTo(-0.5, 5); // negative gy → dot up (forward)
 });

@@ -30,7 +30,12 @@ export function targetsFromTick(t: TickFrame, fallbackRmx = 8000): Targets {
     rpm: t.rpm ?? 0,
     throttle: t.tp ?? 0,
     brake: t.bp ?? 0,
-    gx: Math.max(-1, Math.min(1, (t.lg ?? 0) / G_LIMIT)),
+    // Felt-force ("g-ball"): the dot shows where inertia throws a ball.
+    // Lateral — Forza AccelerationX is +right, so a right turn (lg>0) must throw
+    // the dot LEFT → negate. Longitudinal — AccelerationZ is +forward, so it
+    // already reads right: throttle (lng>0) sits the dot low (thrown back),
+    // braking (lng<0) raises it (thrown forward); no negation.
+    gx: Math.max(-1, Math.min(1, (-(t.lg ?? 0)) / G_LIMIT)),
     gy: Math.max(-1, Math.min(1, (t.lng ?? 0) / G_LIMIT)),
     gear: gearLabel(t.g ?? 0),
     rmx,
