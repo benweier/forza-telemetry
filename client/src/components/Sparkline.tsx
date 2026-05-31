@@ -94,9 +94,12 @@ export function Sparkline({
         if (max - min < 1e-6) max = min + 1;
       }
 
-      const t0 = pts[0].sts;
-      const span = Math.max(1, newest.sts - t0);
-      const xAt = (ts: number) => ((ts - t0) / span) * w;
+      // Fixed-width time axis: right edge is always `newest`, left edge always
+      // `windowSec` ago (= cutoff), so time maps at a constant px/sec. Older
+      // samples scroll off the left edge instead of the whole trace rescaling
+      // once the buffer first fills the window at the windowSec mark.
+      const windowSpan = windowSec * unitPerSec;
+      const xAt = (ts: number) => ((ts - cutoff) / windowSpan) * w;
       const yAt = (v: number) => h - 2 - ((v - min) / (max - min)) * (h - 4);
 
       if (signed) {
