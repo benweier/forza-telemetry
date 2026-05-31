@@ -29,4 +29,6 @@ coverage.*
 # Env
 .env
 .env.local
+/.ai/
 .superpowers/
+/.mcp.json
