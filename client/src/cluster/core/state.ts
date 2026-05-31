@@ -1,4 +1,5 @@
 import type { TickFrame } from "~/types/tick.generated";
+import { gearLabel } from "~/utils/format";
 import type { ClusterState } from "../renderer";
 import { SPEC } from "./spec";
 import { fractionToAngle, redlineFactor, valueToFraction } from "./scale";
@@ -16,16 +17,6 @@ export interface Targets {
 }
 
 const G_LIMIT = 2.5; // g, for normalizing the g-dot to -1..1
-
-/**
- * Forza Data Out sends Gear as a uint8: 0 = reverse, 1..n = forward gears (it
- * does not signal neutral distinctly). Confirmed against a live reverse capture
- * — gear 0 must read "R", not "N".
- */
-export function gearLabel(g: number): string {
-  if (g === 0) return "R";
-  return String(g);
-}
 
 export function targetsFromTick(t: TickFrame, fallbackRmx = 8000): Targets {
   const rmx = t.rmx && t.rmx > 0 ? t.rmx : fallbackRmx;

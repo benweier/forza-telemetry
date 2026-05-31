@@ -4,7 +4,7 @@ import { Icon } from "@iconify/react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Sparkline } from "~/components/Sparkline";
-import { formatCount } from "~/utils/format";
+import { formatCount, gearLabel } from "~/utils/format";
 import { useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
 import type { TickFrame } from "~/types/tick.generated";
@@ -189,7 +189,7 @@ function SpeedCard({ kmh, gear, fresh }: { kmh: number; gear: number; fresh: boo
             className="text-5xl leading-none font-semibold text-foreground tabular-nums"
             style={{ opacity: fresh ? 1 : 0.5 }}
           >
-            {gear === 0 ? "N" : gear === 11 ? "R" : gear}
+            {gearLabel(gear)}
           </span>
         </div>
       </div>

@@ -1,18 +1,12 @@
 import { expect, test } from "vitest";
 import type { TickFrame } from "~/types/tick.generated";
-import { targetsFromTick, buildClusterState, gearLabel } from "./state";
+import { targetsFromTick, buildClusterState } from "./state";
 
 const RAD = Math.PI / 180;
 const tick = (p: Partial<TickFrame>): TickFrame => p as unknown as TickFrame;
 
 test("speed converts m/s → km/h", () => {
   expect(targetsFromTick(tick({ sp: 50 }), 8000).speedKmh).toBeCloseTo(180, 1);
-});
-
-test("gearLabel maps reverse (0) and forward gears", () => {
-  expect(gearLabel(0)).toBe("R"); // Forza encodes reverse as gear 0
-  expect(gearLabel(1)).toBe("1");
-  expect(gearLabel(8)).toBe("8");
 });
 
 test("buildClusterState produces angles at the sweep start when values are zero", () => {
