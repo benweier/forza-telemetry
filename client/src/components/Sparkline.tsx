@@ -53,6 +53,7 @@ export function Sparkline({
 
     let raf = 0;
     let lastTs = Number.NaN;
+    let loggedError = false;
 
     const redraw = (ring: TickFrame[]) => {
       const dpr = window.devicePixelRatio || 1;
@@ -121,20 +122,31 @@ export function Sparkline({
     };
 
     const loop = () => {
-      const ring = useLiveStore.getState().ring;
-      if (ring.length > 0) {
-        const newestTs = ring[ring.length - 1].sts;
-        if (newestTs !== lastTs) {
-          lastTs = newestTs;
-          redraw(ring);
+      // A throw in redraw must not kill the loop permanently — reschedule in
+      // `finally` so one bad frame can't blank the canvas for the session. Log
+      // the first failure (not every frame) so it isn't swallowed silently.
+      try {
+        const ring = useLiveStore.getState().ring;
+        if (ring.length > 0) {
+          const newestTs = ring[ring.length - 1].sts;
+          if (newestTs !== lastTs) {
+            lastTs = newestTs;
+            redraw(ring);
+          }
         }
+      } catch (error) {
+        if (!loggedError) {
+          loggedError = true;
+          console.error(`Sparkline "${label}" redraw failed; loop continues`, error);
+        }
+      } finally {
+        raf = requestAnimationFrame(loop);
       }
-      raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
 
     return () => cancelAnimationFrame(raf);
-  }, [colorVar, signed, windowSec]);
+  }, [colorVar, signed, windowSec, label]);
 
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-surface p-5 shadow-surface">
