@@ -114,8 +114,8 @@ func decodeHorizonTail(d *decoder, out *tick.Tick) {
 	out.HandBrake = d.u8()
 	out.Gear = d.u8()
 	out.Steer = int8(d.u8())
-	_ = d.u8() // NormalizedDrivingLine — not currently surfaced
-	_ = d.u8() // NormalizedAIBrakeDifference — not currently surfaced
+	out.DrivingLine = int8(d.u8())
+	out.AIBrakeDifference = int8(d.u8())
 }
 
 type decoder struct {

@@ -123,6 +123,14 @@ type Tick struct {
 	HandBrake uint8 `parquet:"handbrake" msgpack:"in_h"`
 	Gear      uint8 `parquet:"gear" msgpack:"g"`
 	Steer     int8  `parquet:"steer" msgpack:"st"`
+	// DrivingLine is the game's suggested-driving-line indicator. Observed
+	// range -1..65 across a real race capture (716k race-on packets) — a
+	// signed index/angle, NOT a 0..1 normalized fraction despite Forza's
+	// "NormalizedDrivingLine" wire name.
+	DrivingLine int8 `parquet:"driving_line" msgpack:"dl"`
+	// AIBrakeDifference is how the player's braking compares to the AI's at
+	// this point (signed). Observed range -127..122 in the same capture.
+	AIBrakeDifference int8 `parquet:"ai_brake_diff" msgpack:"abd"`
 
 	// --- Per-wheel arrays (FL, FR, RL, RR) ---
 	TireSlipRatio        [4]float32 `parquet:"tire_slip_ratio" msgpack:"tsr"`

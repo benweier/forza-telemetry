@@ -64,7 +64,7 @@ func (p *FH6Dash) Decode(buf []byte, out *tick.Tick) error {
 	decodeSled(&d, out)
 	decodeFH6Insertion(&d, out)
 	decodeHorizonTail(&d, out)
-	_ = d.u8() // trailing reserved byte at offset 323
+	_ = d.u8() // byte 323: confirmed always 0 across 716k race-on packets — reserved padding, not a field
 
 	if p.capture != nil {
 		p.logPacket(buf)

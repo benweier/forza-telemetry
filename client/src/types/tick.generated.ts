@@ -87,6 +87,8 @@ export interface TickFrame {
   in_h: number;
   g: number;
   st: number;
+  dl: number;
+  abd: number;
 
   // Per-wheel arrays (FL, FR, RL, RR)
   tsr: Quad;

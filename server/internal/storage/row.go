@@ -62,12 +62,14 @@ type parquetRow struct {
 	Speed            float32 `parquet:"speed_ms"`
 	DistanceTraveled float32 `parquet:"distance_m"`
 
-	Accel     uint8 `parquet:"accel"`
-	Brake     uint8 `parquet:"brake"`
-	Clutch    uint8 `parquet:"clutch"`
-	HandBrake uint8 `parquet:"handbrake"`
-	Gear      uint8 `parquet:"gear"`
-	Steer     int8  `parquet:"steer"`
+	Accel             uint8 `parquet:"accel"`
+	Brake             uint8 `parquet:"brake"`
+	Clutch            uint8 `parquet:"clutch"`
+	HandBrake         uint8 `parquet:"handbrake"`
+	Gear              uint8 `parquet:"gear"`
+	Steer             int8  `parquet:"steer"`
+	DrivingLine       int8  `parquet:"driving_line"`
+	AIBrakeDifference int8  `parquet:"ai_brake_diff"`
 
 	TireSlipRatio        []float32 `parquet:"tire_slip_ratio"`
 	TireSlipAngle        []float32 `parquet:"tire_slip_angle"`
@@ -140,6 +142,8 @@ func toParquetRow(t *tick.Tick) parquetRow {
 		HandBrake:            t.HandBrake,
 		Gear:                 t.Gear,
 		Steer:                t.Steer,
+		DrivingLine:          t.DrivingLine,
+		AIBrakeDifference:    t.AIBrakeDifference,
 		TireSlipRatio:        t.TireSlipRatio[:],
 		TireSlipAngle:        t.TireSlipAngle[:],
 		TireCombinedSlip:     t.TireCombinedSlip[:],
