@@ -17,10 +17,10 @@ func TestRESTListPathDefaults(t *testing.T) {
 		t.Fatalf("status %d body=%s", rec.Code, rec.Body)
 	}
 	var body struct {
-		Columns  []string  `json:"columns"`
-		Rows     [][]any   `json:"rows"`
-		Step     int       `json:"step"`
-		SampleHz float64   `json:"sample_hz"`
+		Columns  []string `json:"columns"`
+		Rows     [][]any  `json:"rows"`
+		Step     int      `json:"step"`
+		SampleHz float64  `json:"sample_hz"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
@@ -35,9 +35,9 @@ func TestRESTListPathDefaults(t *testing.T) {
 	if body.Step != defaultPathStep {
 		t.Errorf("step: want %d got %d", defaultPathStep, body.Step)
 	}
-	// 80 synthetic ticks @ step=6 → indices 0,6,12,...,78 = 14 rows.
-	if len(body.Rows) < 10 || len(body.Rows) > 16 {
-		t.Errorf("rows: want ~14 (80/step=6) got %d", len(body.Rows))
+	// 200 synthetic ticks @ step=6 → indices 0,6,12,...,198 = 34 rows.
+	if len(body.Rows) < 30 || len(body.Rows) > 36 {
+		t.Errorf("rows: want ~34 (200/step=6) got %d", len(body.Rows))
 	}
 }
 
@@ -58,9 +58,9 @@ func TestRESTListPathCustomStep(t *testing.T) {
 	if body.Step != 1 {
 		t.Errorf("step: want 1 got %d", body.Step)
 	}
-	// step=1 → every row, all 80 ticks.
-	if len(body.Rows) != 80 {
-		t.Errorf("rows: want 80 (step=1) got %d", len(body.Rows))
+	// step=1 → every row, all 200 ticks.
+	if len(body.Rows) != 200 {
+		t.Errorf("rows: want 200 (step=1) got %d", len(body.Rows))
 	}
 }
 

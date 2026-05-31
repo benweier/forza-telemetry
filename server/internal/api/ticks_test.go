@@ -39,9 +39,11 @@ func newRealTickServer(t *testing.T) (*Server, string) {
 	done := make(chan error, 1)
 	go func() { done <- writer.Run(ctx, sub) }()
 
-	// 4 seconds of synthetic freeroam ticks at 20Hz with monotonic speed.
+	// 10 seconds of synthetic freeroam ticks at 20Hz with monotonic speed.
+	// 200 samples clears the Writer's 180-tick density floor so the stint
+	// persists for these REST tests.
 	const step = int64(50 * time.Millisecond)
-	for i := 0; i < 80; i++ {
+	for i := 0; i < 200; i++ {
 		broker.Publish(&tick.Tick{
 			ServerRecvNS: int64(i) * step,
 			GameTSMillis: uint32(int64(i) * step / int64(time.Millisecond)),
