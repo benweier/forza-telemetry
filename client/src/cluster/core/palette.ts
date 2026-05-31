@@ -10,6 +10,9 @@ export interface Palette {
   brake: [number, number, number];
   panel: [number, number, number];
   tick: [number, number, number];
+  textPrimary: [number, number, number];
+  textMuted: [number, number, number];
+  rpmCaption: [number, number, number];
 }
 
 export const DEFAULT_PALETTE: Palette = {
@@ -23,4 +26,7 @@ export const DEFAULT_PALETTE: Palette = {
   brake: [1.0, 0.35, 0.30],
   panel: [0.07, 0.08, 0.10],
   tick: [0.78, 0.82, 0.87],
+  textPrimary: [0.95, 0.96, 0.98],
+  textMuted: [0.5, 0.55, 0.62],
+  rpmCaption: [0.6, 0.9, 0.82],
 };

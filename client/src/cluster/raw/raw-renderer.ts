@@ -502,15 +502,15 @@ export class RawClusterRenderer implements ClusterRenderer {
       }
     };
 
-    const mn_ref = mn; // alias for fontPx calculations
+    const p = this.palette;
 
     // Speed — big, centered at gauge center, slightly below middle
     appendRun(
       String(Math.round(state.speedKmh)),
       SPEC.gauge.cx,
       0.56,
-      mn_ref * 0.13,
-      [0.95, 0.96, 0.98, 1.0],
+      mn * 0.13,
+      [...p.textPrimary, 1] as [number, number, number, number],
     );
 
     // "KM/H" — small, centered under speed
@@ -518,8 +518,8 @@ export class RawClusterRenderer implements ClusterRenderer {
       "KM/H",
       SPEC.gauge.cx,
       0.66,
-      mn_ref * 0.035,
-      [0.5, 0.55, 0.62, 1.0],
+      mn * 0.035,
+      [...p.textMuted, 1] as [number, number, number, number],
     );
 
     // RPM — small, centered above gauge middle
@@ -527,8 +527,8 @@ export class RawClusterRenderer implements ClusterRenderer {
       String(Math.round(state.rpm)),
       SPEC.gauge.cx,
       0.34,
-      mn_ref * 0.035,
-      [0.6, 0.9, 0.82, 1.0],
+      mn * 0.035,
+      [...p.rpmCaption, 1] as [number, number, number, number],
     );
 
     // Gear — large, in gear tile
@@ -536,8 +536,8 @@ export class RawClusterRenderer implements ClusterRenderer {
       state.gear,
       SPEC.rail.x,
       SPEC.rail.gear.cy,
-      mn_ref * 0.09,
-      [0.95, 0.96, 0.98, 1.0],
+      mn * 0.09,
+      [...p.textPrimary, 1] as [number, number, number, number],
     );
 
     return { data, vertCount };
