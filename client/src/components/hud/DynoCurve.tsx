@@ -100,6 +100,18 @@ export function DynoCurve({ tick }: { tick: TickFrame }) {
       ctx.lineTo(cx, h - pad);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // dots where the cursor meets each curve (current live power/torque)
+      const powerY = yPower((t.pw ?? 0) / 1000);
+      const torqueY = yTorque(t.tq ?? 0);
+      ctx.fillStyle = powerColor;
+      ctx.beginPath();
+      ctx.arc(cx, powerY, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = torqueColor;
+      ctx.beginPath();
+      ctx.arc(cx, torqueY, 3, 0, Math.PI * 2);
+      ctx.fill();
     };
 
     const loop = () => {
