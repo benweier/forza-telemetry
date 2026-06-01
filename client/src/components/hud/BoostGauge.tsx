@@ -26,31 +26,35 @@ export function BoostGauge({ tick, fresh }: { tick: TickFrame; fresh: boolean })
           {Math.abs(boost).toFixed(1)}
         </span>
       </div>
-      <div className="relative h-3 overflow-hidden rounded-full bg-surface-secondary">
-        {/* zero baseline marker */}
-        <span aria-hidden className="absolute top-0 h-full w-px bg-muted/60" style={{ left: `${zeroPct}%` }} />
-        {/* positive-boost fill from zero to current */}
-        {boost > 0 && (
-          <span
-            className="absolute top-0 h-full"
-            style={{
-              left: `${zeroPct}%`,
-              width: `${markerPct - zeroPct}%`,
-              background: "var(--accent)",
-            }}
-          />
-        )}
-        {/* current-value marker */}
+      <div className="relative h-4">
+        <div className="absolute inset-x-0 top-0.5 h-3 overflow-hidden rounded-full bg-surface-secondary">
+          {/* zero baseline marker */}
+          <span aria-hidden className="absolute top-0 h-full w-px bg-muted/60" style={{ left: `${zeroPct}%` }} />
+          {/* positive-boost fill from zero to current */}
+          {boost > 0 && (
+            <span
+              className="absolute top-0 h-full"
+              style={{
+                left: `${zeroPct}%`,
+                width: `${markerPct - zeroPct}%`,
+                background: "var(--accent)",
+              }}
+            />
+          )}
+        </div>
+        {/* current-value marker — sibling of the clipped track so it can overhang */}
         <span
           aria-hidden
-          className="absolute -top-0.5 h-4 w-0.5 rounded-full bg-foreground"
+          className="absolute top-0 h-4 w-0.5 rounded-full bg-foreground"
           style={{ left: `${markerPct}%` }}
         />
       </div>
-      <div className="flex justify-between text-[10px] text-muted">
-        <span>vacuum</span>
-        <span>0</span>
-        <span>max</span>
+      <div className="relative h-3 text-[10px] text-muted">
+        <span className="absolute left-0">vacuum</span>
+        <span className="absolute -translate-x-1/2" style={{ left: `${zeroPct}%` }}>
+          0
+        </span>
+        <span className="absolute right-0">max</span>
       </div>
     </div>
   );
