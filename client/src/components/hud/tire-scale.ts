@@ -59,6 +59,9 @@ export const SLIP_RING = {
 } as const;
 
 export function ringFromCombinedSlip(tcs: number): RingStyle {
+  // strokeWidth ramps over the full grip→max range — a continuous width signal.
+  // Colour transitions faster (muted→warning over grip→limit, then warning→danger
+  // over limit→max) because colour is the primary urgency cue; width reinforces it.
   const f = clamp01((tcs - SLIP_RING.grip) / (SLIP_RING.max - SLIP_RING.grip));
   const strokeWidth = SLIP_RING.minWidth + f * (SLIP_RING.maxWidth - SLIP_RING.minWidth);
   let color: string;

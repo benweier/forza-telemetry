@@ -21,6 +21,8 @@ test("heatScaleColor: between bands returns a token color-mix", () => {
   expect(midCool).toContain("color-mix");
   expect(midCool).toContain("--muted");
   expect(midCool).toContain("--success");
+  // temp=60 is exactly halfway between cold(50) and optimalLo(70) → 50% weight on --success
+  expect(heatScaleColor(60)).toBe("color-mix(in oklab, var(--muted) 50%, var(--success) 50%)");
 });
 
 test("classifyWheelSlip: negative slip ratio locks, positive spins, small is null", () => {
@@ -28,6 +30,10 @@ test("classifyWheelSlip: negative slip ratio locks, positive spins, small is nul
   expect(classifyWheelSlip(0.5)).toBe("spin");
   expect(classifyWheelSlip(0)).toBeNull();
   expect(classifyWheelSlip(0.01)).toBeNull();
+});
+
+test("classifyWheelSlip: honours a custom threshold", () => {
+  expect(classifyWheelSlip(0.05, 0.04)).toBe("spin");
 });
 
 test("ringFromCombinedSlip: widens and reddens as slip exceeds grip", () => {
