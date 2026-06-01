@@ -4,6 +4,9 @@ import { Icon } from "@iconify/react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Sparkline } from "~/components/Sparkline";
+import { BoostGauge } from "~/components/hud/BoostGauge";
+import { CarDiagram } from "~/components/hud/CarDiagram";
+import { DynoCurve } from "~/components/hud/DynoCurve";
 import { formatCount, gearLabel } from "~/utils/format";
 import { useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
@@ -132,7 +135,8 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
   const redlinePct = 0.88;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]" data-stale={!fresh}>
+    <div className="grid items-stretch gap-4 lg:grid-cols-[1.25fr_0.95fr_0.95fr]" data-stale={!fresh}>
+      {/* Column 1 — drive inputs */}
       <div className="flex flex-col gap-4">
         <SpeedCard kmh={kmh} gear={tick.g ?? 0} fresh={fresh} />
         <RpmBar rpm={rpm} rpmMax={tick.rmx ?? 0} pct={rpmPct} redlinePct={redlinePct} />
@@ -159,7 +163,13 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
         </div>
       </div>
 
+      {/* Column 2 — chassis centerpiece */}
+      <CarDiagram tick={tick} fresh={fresh} />
+
+      {/* Column 3 — engine + forces */}
       <aside className="flex flex-col gap-4">
+        <DynoCurve tick={tick} />
+        <BoostGauge tick={tick} fresh={fresh} />
         <GForcePanel latG={tick.lg ?? 0} longG={tick.lng ?? 0} />
         <MetaPanel tick={tick} />
       </aside>
@@ -339,7 +349,6 @@ function MetaPanel({ tick }: { tick: TickFrame }) {
     ["Car ord", tick.co !== 0 ? formatCount(tick.co) : "—"],
     ["Car class", tick.cc !== 0 ? formatCount(tick.cc) : "—"],
     ["Car PI", tick.cpi !== 0 ? formatCount(tick.cpi) : "—"],
-    ["Cylinders", tick.ncy !== 0 ? formatCount(tick.ncy) : "—"],
   ];
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-surface p-5 shadow-surface">
