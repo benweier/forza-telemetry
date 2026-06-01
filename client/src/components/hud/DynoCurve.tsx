@@ -1,10 +1,10 @@
 // client/src/components/hud/DynoCurve.tsx
 /* Hallmark · component: dyno-curve · genre: dashboard · theme: Glass */
 import { useEffect, useRef } from "react";
-import type { TickFrame } from "~/types/tick.generated";
 import { useLiveStore } from "~/utils/live-store";
 import { DynoEnvelope } from "./engine";
 import { EngineBadge } from "./EngineBadge";
+import type { TickFrame } from "~/types/tick.generated";
 
 /** Live power+torque envelope vs RPM. Power uses --accent, torque --warning. */
 export function DynoCurve({ tick }: { tick: TickFrame }) {
@@ -70,7 +70,11 @@ export function DynoCurve({ tick }: { tick: TickFrame }) {
       ctx.lineTo(w - pad, h - pad);
       ctx.stroke();
 
-      const drawCurve = (color: string, yOf: (b: number) => number, key: "powerKW" | "torqueNm") => {
+      const drawCurve = (
+        color: string,
+        yOf: (b: number) => number,
+        key: "powerKW" | "torqueNm",
+      ) => {
         if (buckets.length < 2) return;
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -124,7 +128,9 @@ export function DynoCurve({ tick }: { tick: TickFrame }) {
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-surface p-5 shadow-surface">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium tracking-wider text-muted uppercase">Power &amp; torque</span>
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">
+          Power &amp; torque
+        </span>
         <EngineBadge tick={tick} />
       </div>
       <canvas

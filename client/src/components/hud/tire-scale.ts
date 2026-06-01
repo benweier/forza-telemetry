@@ -37,9 +37,11 @@ export const TEMP_THRESHOLDS: TempThresholds = {
 /** Tire temp → on-palette grip-window colour. Green = in the grip window. */
 export function heatScaleColor(temp: number, t: TempThresholds = TEMP_THRESHOLDS): string {
   if (temp <= t.cold) return "var(--muted)";
-  if (temp < t.optimalLo) return mix("--muted", "--success", (temp - t.cold) / (t.optimalLo - t.cold));
+  if (temp < t.optimalLo)
+    return mix("--muted", "--success", (temp - t.cold) / (t.optimalLo - t.cold));
   if (temp <= t.optimalHi) return "var(--success)";
-  if (temp < t.hot) return mix("--success", "--warning", (temp - t.optimalHi) / (t.hot - t.optimalHi));
+  if (temp < t.hot)
+    return mix("--success", "--warning", (temp - t.optimalHi) / (t.hot - t.optimalHi));
   if (temp < t.overheat) return mix("--warning", "--danger", (temp - t.hot) / (t.overheat - t.hot));
   return "var(--danger)";
 }
@@ -68,9 +70,17 @@ export function ringFromCombinedSlip(tcs: number): RingStyle {
   if (tcs < SLIP_RING.grip) {
     color = "var(--muted)";
   } else if (tcs < SLIP_RING.limit) {
-    color = mix("--muted", "--warning", (tcs - SLIP_RING.grip) / (SLIP_RING.limit - SLIP_RING.grip));
+    color = mix(
+      "--muted",
+      "--warning",
+      (tcs - SLIP_RING.grip) / (SLIP_RING.limit - SLIP_RING.grip),
+    );
   } else {
-    color = mix("--warning", "--danger", clamp01((tcs - SLIP_RING.limit) / (SLIP_RING.max - SLIP_RING.limit)));
+    color = mix(
+      "--warning",
+      "--danger",
+      clamp01((tcs - SLIP_RING.limit) / (SLIP_RING.max - SLIP_RING.limit)),
+    );
   }
   return { strokeWidth, color };
 }

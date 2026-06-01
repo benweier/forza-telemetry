@@ -1,13 +1,13 @@
-// client/src/components/hud/CarDiagram.tsx
-/* Hallmark · component: car-diagram · genre: dashboard · theme: Glass */
-import type { TickFrame } from "~/types/tick.generated";
+import { drivenAxle } from "./engine";
 import {
   classifyWheelSlip,
   heatScaleColor,
   ringFromCombinedSlip,
   slipAngleTick,
 } from "./tire-scale";
-import { drivenAxle } from "./engine";
+// client/src/components/hud/CarDiagram.tsx
+/* Hallmark · component: car-diagram · genre: dashboard · theme: Glass */
+import type { TickFrame } from "~/types/tick.generated";
 
 /** Per-wheel order is FL, FR, RL, RR everywhere in this codebase. */
 const WHEELS = [
@@ -54,7 +54,12 @@ function Corner({ tick, wheel }: { tick: TickFrame; wheel: (typeof WHEELS)[numbe
         textAnchor="middle"
         fontSize={11}
         className="fill-background"
-        style={{ paintOrder: "stroke", stroke: "var(--foreground)", strokeWidth: 2.5, strokeLinejoin: "round" }}
+        style={{
+          paintOrder: "stroke",
+          stroke: "var(--foreground)",
+          strokeWidth: 2.5,
+          strokeLinejoin: "round",
+        }}
       >
         {Math.round(temp)}°
       </text>
@@ -82,7 +87,14 @@ function Corner({ tick, wheel }: { tick: TickFrame; wheel: (typeof WHEELS)[numbe
         </text>
       )}
       {/* suspension-travel side bar */}
-      <rect x={barX} y={y} width={BAR_W} height={WHEEL_H} rx={BAR_W / 2} fill="var(--surface-secondary)" />
+      <rect
+        x={barX}
+        y={y}
+        width={BAR_W}
+        height={WHEEL_H}
+        rx={BAR_W / 2}
+        fill="var(--surface-secondary)"
+      />
       <rect
         x={barX}
         y={y + (WHEEL_H - barH)}
@@ -100,7 +112,9 @@ export function CarDiagram({ tick, fresh }: { tick: TickFrame; fresh: boolean })
 
   return (
     <div className="flex h-full flex-col gap-3 rounded-2xl bg-surface p-5 shadow-surface">
-      <span className="text-xs font-medium tracking-wider text-muted uppercase">Tires &amp; chassis</span>
+      <span className="text-xs font-medium tracking-wider text-muted uppercase">
+        Tires &amp; chassis
+      </span>
       <svg
         viewBox="0 0 304 402"
         role="img"

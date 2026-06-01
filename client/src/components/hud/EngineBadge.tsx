@@ -1,7 +1,7 @@
+import { cylinderLabel, drivetrainLabel } from "./engine";
 // client/src/components/hud/EngineBadge.tsx
 /* Hallmark · component: engine-badge · genre: dashboard · theme: Glass */
 import type { TickFrame } from "~/types/tick.generated";
-import { cylinderLabel, drivetrainLabel } from "./engine";
 
 /** Compact identity pill: cylinder count · drivetrain. Renders nothing useful
  *  on FH5/unknown packets where both fields are 0. */

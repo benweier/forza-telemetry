@@ -3,10 +3,10 @@ import { Chip } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Sparkline } from "~/components/Sparkline";
 import { BoostGauge } from "~/components/hud/BoostGauge";
 import { CarDiagram } from "~/components/hud/CarDiagram";
 import { DynoCurve } from "~/components/hud/DynoCurve";
+import { Sparkline } from "~/components/Sparkline";
 import { formatCount, gearLabel } from "~/utils/format";
 import { useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
@@ -135,7 +135,10 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
   const redlinePct = 0.88;
 
   return (
-    <div className="grid items-stretch gap-4 lg:grid-cols-[1.25fr_0.95fr_0.95fr]" data-stale={!fresh}>
+    <div
+      className="grid items-stretch gap-4 lg:grid-cols-[1.25fr_0.95fr_0.95fr]"
+      data-stale={!fresh}
+    >
       {/* Column 1 — drive inputs */}
       <div className="flex flex-col gap-4">
         <SpeedCard kmh={kmh} gear={tick.g ?? 0} fresh={fresh} />

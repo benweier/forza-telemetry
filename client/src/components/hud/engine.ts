@@ -107,7 +107,11 @@ export class DynoEnvelope {
     const out: DynoBucket[] = [];
     for (let i = 0; i < this.maxPower.length; i++) {
       if (this.seen[i]) {
-        out.push({ rpm: i * this.bucketRpm, powerKW: this.maxPower[i], torqueNm: this.maxTorque[i] });
+        out.push({
+          rpm: i * this.bucketRpm,
+          powerKW: this.maxPower[i],
+          torqueNm: this.maxTorque[i],
+        });
       }
     }
     return out;

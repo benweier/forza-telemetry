@@ -1,7 +1,7 @@
+import { boostFraction } from "./engine";
 // client/src/components/hud/BoostGauge.tsx
 /* Hallmark · component: boost-gauge · genre: dashboard · theme: Glass */
 import type { TickFrame } from "~/types/tick.generated";
-import { boostFraction } from "./engine";
 
 /** Display range is a PLACEHOLDER — boost units are unconfirmed (see
  *  docs/data-needed.md). Vacuum end is muted (no blue token in the palette);
@@ -29,7 +29,11 @@ export function BoostGauge({ tick, fresh }: { tick: TickFrame; fresh: boolean })
       <div className="relative h-4">
         <div className="absolute inset-x-0 top-0.5 h-3 overflow-hidden rounded-full bg-surface-secondary">
           {/* zero baseline marker */}
-          <span aria-hidden className="absolute top-0 h-full w-px bg-muted/60" style={{ left: `${zeroPct}%` }} />
+          <span
+            aria-hidden
+            className="absolute top-0 h-full w-px bg-muted/60"
+            style={{ left: `${zeroPct}%` }}
+          />
           {/* positive-boost fill from zero to current */}
           {boost > 0 && (
             <span
