@@ -11,10 +11,10 @@ import { drivenAxle } from "./engine";
 
 /** Per-wheel order is FL, FR, RL, RR everywhere in this codebase. */
 const WHEELS = [
-  { i: 0, cx: 70, cy: 112, barX: 28, barSide: "left" as const },
-  { i: 1, cx: 234, cy: 112, barX: 271, barSide: "right" as const },
-  { i: 2, cx: 70, cy: 290, barX: 28, barSide: "left" as const },
-  { i: 3, cx: 234, cy: 290, barX: 271, barSide: "right" as const },
+  { i: 0, cx: 70, cy: 112, barX: 28 },
+  { i: 1, cx: 234, cy: 112, barX: 271 },
+  { i: 2, cx: 70, cy: 290, barX: 28 },
+  { i: 3, cx: 234, cy: 290, barX: 271 },
 ];
 
 const WHEEL_W = 36;
@@ -27,7 +27,7 @@ function Corner({ tick, wheel }: { tick: TickFrame; wheel: (typeof WHEELS)[numbe
   const ring = ringFromCombinedSlip(tick.tcs[i] ?? 0);
   const slip = classifyWheelSlip(tick.tsr[i] ?? 0);
   const arrow = slipAngleTick(tick.tsa[i] ?? 0);
-  // Normalised suspension travel 0..1 → bar fills upward from the wheel centre.
+  // Normalised suspension travel 0..1 → side bar fills bottom-up over the wheel height.
   const travel = Math.max(0, Math.min(1, tick.stn[i] ?? 0));
   const barH = travel * WHEEL_H;
 
@@ -48,7 +48,14 @@ function Corner({ tick, wheel }: { tick: TickFrame; wheel: (typeof WHEELS)[numbe
       />
       {/* tire body, grip-window heat fill */}
       <rect x={x} y={y} width={WHEEL_W} height={WHEEL_H} rx={11} fill={heatScaleColor(temp)} />
-      <text x={cx} y={cy + 4} textAnchor="middle" fontSize={11} className="fill-background">
+      <text
+        x={cx}
+        y={cy + 4}
+        textAnchor="middle"
+        fontSize={11}
+        className="fill-background"
+        style={{ paintOrder: "stroke", stroke: "var(--foreground)", strokeWidth: 2.5, strokeLinejoin: "round" }}
+      >
         {Math.round(temp)}°
       </text>
       {/* slip-angle tick from the wheel centre (horizontal, signed) */}
