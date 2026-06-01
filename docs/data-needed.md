@@ -105,6 +105,27 @@ or what new questions surfaced.
 - **Needs:** check whether real free-roam sessions exceed an hour without category change. If so, decide on eviction or external-spill strategy.
 - **Code dep:** `writer.go` accumulates `pathSamples` only for race-category stints today, but the same memory bound applies.
 
+## Live HUD visualisation thresholds (client)
+
+Added 2026-06-01 for the `/live` HUD car diagram, dyno curve, and boost gauge. All
+are placeholders in `client/src/components/hud/tire-scale.ts` / `engine.ts` and need
+a real capture to confirm. Update or remove these entries when resolved.
+
+### Tire temp (`tt`) unit + grip-window thresholds
+- **Currently:** `TEMP_THRESHOLDS` in `tire-scale.ts` assumes a Celsius-ish scale (cold 50, optimal 70–95, hot 110, overheat 120) driving the muted→success→warning→danger heat fill.
+- **Needs:** confirm the wire unit (°C / °F) and tune the grip-window band edges against a capture where tire state is known.
+- **Code dep:** `heatScaleColor()` + `TEMP_THRESHOLDS` — band edges are the only tuning surface.
+
+### Boost (`bo`) unit + display range
+- **Currently:** `BoostGauge` renders raw `bo` across a placeholder −1..2 range; zero is the vacuum/positive pivot.
+- **Needs:** confirm whether the unit is bar / PSI / atm and fix `BOOST_MIN`/`BOOST_MAX` and the zero/vacuum convention.
+- **Code dep:** `BoostGauge.tsx` `BOOST_MIN`/`BOOST_MAX`; `boostFraction()` in `engine.ts`.
+
+### Slip-ratio (`tsr`) lockup/spin + slip-angle (`tsa`) scale
+- **Currently:** `TSR_SLIP_THRESHOLD = 0.15` gates the ring LOCK/SPIN tags; `SLIP_ANGLE_MAX = 0.3` rad sets full-length slip-angle arrows.
+- **Needs:** confirm against a capture with deliberate lockup / wheelspin and measured slip angles.
+- **Code dep:** `classifyWheelSlip()` + `slipAngleTick()` in `tire-scale.ts`.
+
 ---
 
 ## How to use this doc
