@@ -62,11 +62,16 @@ export interface DynoBucket {
  * envelope" that fills in as the player revs. Resets automatically when the car
  * ordinal changes (a new car has a new curve). Buckets are fixed-width and
  * capped well above any real redline so a higher-revving car never clips.
+ *
+ * `carOrdinal` starts at 0. Ordinal 0 doubles as the "no car / unknown"
+ * sentinel in Forza telemetry, so `update(..., 0)` is treated as "same car"
+ * and never triggers a reset — by design.
  */
 export class DynoEnvelope {
   private readonly maxPower: Float64Array;
   private readonly maxTorque: Float64Array;
   private readonly seen: boolean[];
+  /** Ordinal 0 = "no car / unknown" sentinel; never triggers a reset. */
   private carOrdinal = 0;
 
   constructor(

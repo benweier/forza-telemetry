@@ -33,6 +33,8 @@ test("boostFraction maps value into 0..1 across the display range, clamped", () 
   expect(boostFraction(2, -1, 2)).toBe(1);
   expect(boostFraction(0.5, -1, 2)).toBeCloseTo(0.5, 5);
   expect(boostFraction(99, -1, 2)).toBe(1);
+  // zero-range guard: min === max must return 0, not NaN
+  expect(boostFraction(0.5, 2, 2)).toBe(0);
 });
 
 test("DynoEnvelope keeps the per-RPM-bucket maxima", () => {
@@ -54,4 +56,10 @@ test("DynoEnvelope resets when the car ordinal changes", () => {
   const buckets = env.buckets();
   expect(buckets).toHaveLength(1);
   expect(buckets[0].rpm).toBe(5000);
+});
+
+test("DynoEnvelope ignores negative rpm", () => {
+  const env = new DynoEnvelope(1000);
+  env.update(-10, 100_000, 300, 1);
+  expect(env.buckets()).toHaveLength(0);
 });
