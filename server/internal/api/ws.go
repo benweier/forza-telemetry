@@ -48,6 +48,12 @@ func (s *Server) handleLiveWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	// We never expect inbound data, but coder/websocket needs a reader running to
+	// process pong/close control frames — without it conn.Ping never sees its pong
+	// (times out every cycle) and client disconnects go undetected. CloseRead spawns
+	// that reader and returns a ctx cancelled when the peer goes away.
+	ctx = conn.CloseRead(ctx)
+
 	sub := s.broker.Subscribe(true)
 	defer sub.Close()
 
@@ -94,5 +100,9 @@ func writeMsgpack(ctx context.Context, conn *websocket.Conn, v any) error {
 	if err != nil {
 		return err
 	}
+	// Bound the write so a wedged TCP send window can't park the sole drainer
+	// indefinitely (which would silently fill the broker buffer and drop ticks).
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	return conn.Write(ctx, websocket.MessageBinary, b)
 }
