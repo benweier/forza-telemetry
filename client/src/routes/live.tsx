@@ -247,8 +247,8 @@ function RpmBar({
         <div
           className={
             overRedline
-              ? "h-full animate-pulse rounded-full transition-[width] duration-100"
-              : "h-full rounded-full transition-[width] duration-100"
+              ? "h-full animate-pulse rounded-full"
+              : "h-full rounded-full"
           }
           style={{
             width: `${pct * 100}%`,
@@ -286,7 +286,7 @@ function InputBar({
       </div>
       <div className="relative h-2 overflow-hidden rounded-full bg-surface-secondary">
         <div
-          className="h-full rounded-full transition-[width] duration-100"
+          className="h-full rounded-full"
           style={{
             width: `${pct * 100}%`,
             background: tone === "danger" ? "var(--danger)" : "var(--success)",
