@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+
+	"github.com/benweier/forza-telemetry/server/internal/storage"
 )
 
 type stintDetail struct {
@@ -147,4 +149,20 @@ func (s *Server) handleListPreview(w http.ResponseWriter, r *http.Request) {
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"samples": out})
+}
+
+// handleDeleteStint removes a single stint (child rows + Parquet file). Refuses
+// the actively-recording stint with 409.
+func (s *Server) handleDeleteStint(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	switch err := s.store.DeleteStint(id); {
+	case errors.Is(err, storage.ErrNotFound):
+		writeError(w, http.StatusNotFound, "stint not found")
+	case errors.Is(err, storage.ErrActive):
+		writeError(w, http.StatusConflict, "cannot delete a stint that is still recording")
+	case err != nil:
+		s.internalError(w, "delete_stint", err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	}
 }

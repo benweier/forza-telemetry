@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/benweier/forza-telemetry/server/internal/storage"
 )
 
 type sessionRow struct {
@@ -151,4 +153,20 @@ func (s *Server) handleDownsampleSession(w http.ResponseWriter, r *http.Request)
 		"error": "downsample action not yet implemented",
 		"note":  "the endpoint shape is stable; backend job lands in handoff #9",
 	})
+}
+
+// handleDeleteSession removes a session and every stint beneath it (child rows +
+// Parquet files). Refuses the actively-recording session with 409.
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	switch err := s.store.DeleteSession(id); {
+	case errors.Is(err, storage.ErrNotFound):
+		writeError(w, http.StatusNotFound, "session not found")
+	case errors.Is(err, storage.ErrActive):
+		writeError(w, http.StatusConflict, "cannot delete a session that is still recording")
+	case err != nil:
+		s.internalError(w, "delete_session", err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	}
 }

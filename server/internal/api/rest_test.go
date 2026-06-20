@@ -227,3 +227,94 @@ func TestRESTListPreview(t *testing.T) {
 		t.Fatalf("samples len: want 1 got %d", len(samples))
 	}
 }
+
+func doMethod(t *testing.T, s *Server, method, path string) int {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func countRows(t *testing.T, s *Server, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := s.store.DB().QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatalf("count %q: %v", query, err)
+	}
+	return n
+}
+
+func TestRESTDeleteStint(t *testing.T) {
+	s := newTestServer(t)
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/stints/"+fixStintID); code != 200 {
+		t.Fatalf("delete stint: want 200 got %d", code)
+	}
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/stints/"+fixStintID); code != 404 {
+		t.Errorf("re-delete: want 404 got %d", code)
+	}
+	if code, _ := doRequest(t, s, "/api/v1/stints/"+fixStintID); code != 404 {
+		t.Errorf("get deleted stint: want 404 got %d", code)
+	}
+	// Child rows cascade away; the parent session survives.
+	if n := countRows(t, s, `SELECT COUNT(*) FROM stints WHERE id = ?`, fixStintID); n != 0 {
+		t.Errorf("stint rows: want 0 got %d", n)
+	}
+	for _, tbl := range []string{"stint_summary", "lap_summary", "preview_samples"} {
+		if n := countRows(t, s, `SELECT COUNT(*) FROM `+tbl+` WHERE stint_id = ?`, fixStintID); n != 0 {
+			t.Errorf("%s rows: want 0 got %d", tbl, n)
+		}
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM sessions WHERE id = ?`, fixSessionID); n != 1 {
+		t.Errorf("session should survive stint delete: got %d", n)
+	}
+}
+
+func TestRESTDeleteSession(t *testing.T) {
+	s := newTestServer(t)
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/sessions/"+fixSessionID); code != 200 {
+		t.Fatalf("delete session: want 200 got %d", code)
+	}
+	if code, _ := doRequest(t, s, "/api/v1/sessions/"+fixSessionID); code != 404 {
+		t.Errorf("get deleted session: want 404 got %d", code)
+	}
+	// Everything beneath the session is gone.
+	if n := countRows(t, s, `SELECT COUNT(*) FROM stints WHERE session_id = ?`, fixSessionID); n != 0 {
+		t.Errorf("stints: want 0 got %d", n)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM preview_samples WHERE stint_id = ?`, fixStintID); n != 0 {
+		t.Errorf("preview_samples: want 0 got %d", n)
+	}
+}
+
+func TestRESTDeleteActiveRejected(t *testing.T) {
+	s := newTestServer(t)
+	db := s.store.DB()
+	// A session + stint still recording (ended_at_ns IS NULL).
+	mustExec(t, db, `INSERT INTO sessions (id, started_at_ns) VALUES (?, ?)`,
+		"ACTIVE_SESSION", int64(3_000_000_000))
+	mustExec(t, db, `INSERT INTO stints (id, session_id, ordinal, started_at_ns, parquet_path)
+	                 VALUES (?, ?, 1, ?, ?)`,
+		"ACTIVE_SESSION_0001", "ACTIVE_SESSION", int64(3_000_000_000), "/tmp/active.parquet")
+
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/sessions/ACTIVE_SESSION"); code != 409 {
+		t.Errorf("delete active session: want 409 got %d", code)
+	}
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/stints/ACTIVE_SESSION_0001"); code != 409 {
+		t.Errorf("delete active stint: want 409 got %d", code)
+	}
+	// Both still present.
+	if n := countRows(t, s, `SELECT COUNT(*) FROM sessions WHERE id = ?`, "ACTIVE_SESSION"); n != 1 {
+		t.Errorf("active session should survive: got %d", n)
+	}
+}
+
+func TestRESTDeleteMissing(t *testing.T) {
+	s := newTestServer(t)
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/sessions/nope"); code != 404 {
+		t.Errorf("delete missing session: want 404 got %d", code)
+	}
+	if code := doMethod(t, s, http.MethodDelete, "/api/v1/stints/nope"); code != 404 {
+		t.Errorf("delete missing stint: want 404 got %d", code)
+	}
+}

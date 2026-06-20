@@ -44,9 +44,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sessions", s.handleListSessions)
 	s.mux.HandleFunc("GET /api/v1/sessions/{id}", s.handleGetSession)
 	s.mux.HandleFunc("PATCH /api/v1/sessions/{id}", s.handlePatchSession)
+	s.mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.handleDeleteSession)
 	s.mux.HandleFunc("POST /api/v1/sessions/{id}/downsample", s.handleDownsampleSession)
 
 	s.mux.HandleFunc("GET /api/v1/stints/{id}", s.handleGetStint)
+	s.mux.HandleFunc("DELETE /api/v1/stints/{id}", s.handleDeleteStint)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/laps", s.handleListLaps)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/preview", s.handleListPreview)
 	s.mux.HandleFunc("GET /api/v1/stints/{id}/ticks", s.handleListTicks)
