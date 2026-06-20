@@ -14,9 +14,7 @@ import {
   SessionDetailSchema,
   SessionsListResponseSchema,
   StintDetailSchema,
-  StraightsResponseSchema,
   TicksResponseSchema,
-  TurnsResponseSchema,
 } from "~/utils/schemas";
 
 // --- Sessions ---
@@ -45,18 +43,6 @@ export const lapsQuery = (id: string) =>
   queryOptions({
     queryKey: ["stints", id, "laps"] as const,
     queryFn: () => fetchAndParse(`/stints/${id}/laps`, LapsResponseSchema),
-  });
-
-export const turnsQuery = (id: string) =>
-  queryOptions({
-    queryKey: ["stints", id, "turns"] as const,
-    queryFn: () => fetchAndParse(`/stints/${id}/turns`, TurnsResponseSchema),
-  });
-
-export const straightsQuery = (id: string) =>
-  queryOptions({
-    queryKey: ["stints", id, "straights"] as const,
-    queryFn: () => fetchAndParse(`/stints/${id}/straights`, StraightsResponseSchema),
   });
 
 export const previewQuery = (id: string) =>

@@ -157,27 +157,6 @@ Auto-detected hot-spots (lateral G / brake / top speed peaks).
 }
 ```
 
-### `GET /api/v1/stints/{id}/corners`
-Auto-detected corners (circuit stints only).
-
-```json
-{
-  "corners": [
-    {
-      "id": "20260524T170000Z_0001_lap0_corner1",
-      "lap_number": 0,
-      "corner_index": 1,
-      "started_at_ns": 1779609381100000000,
-      "apex_tick_ns": 1779609381200000000,
-      "ended_at_ns": 1779609381400000000,
-      "peak_curvature": 0.02,
-      "peak_lateral_g": 1.2,
-      "direction": "right"            // "left" | "right"
-    }
-  ]
-}
-```
-
 ### `GET /api/v1/stints/{id}/preview`
 1Hz preview series for the scrub bar. One row per second of stint wall time.
 

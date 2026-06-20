@@ -1,4 +1,3 @@
-import { EmptyState } from "@heroui-pro/react";
 /* Hallmark · component: stint-detail · genre: dashboard · theme: Glass */
 import { Chip, Skeleton } from "@heroui/react";
 import { Icon } from "@iconify/react";
@@ -13,11 +12,9 @@ import {
   pathQuery,
   previewQuery,
   stintQuery,
-  straightsQuery,
   ticksQuery,
-  turnsQuery,
 } from "~/utils/queries";
-import type { Lap, StintDetail, StintSummary, Turn } from "~/utils/schemas";
+import type { Lap, StintDetail, StintSummary } from "~/utils/schemas";
 
 // Channels the preview chart upgrades to at full rate; mirrors the 1Hz preview's
 // speed / lateral-G / brake series. Server caps the tick window at 60s.
@@ -34,8 +31,6 @@ export const Route = createFileRoute("/stints/$stintId")({
       context.queryClient.prefetchQuery(stintQuery(id)),
       context.queryClient.prefetchQuery(previewQuery(id)),
       context.queryClient.prefetchQuery(pathQuery(id)),
-      context.queryClient.prefetchQuery(turnsQuery(id)),
-      context.queryClient.prefetchQuery(straightsQuery(id)),
       context.queryClient.prefetchQuery(lapsQuery(id)),
     ]);
   },
@@ -46,8 +41,6 @@ function StintDetailRoute() {
   const stint = useQuery(stintQuery(stintId));
   const preview = useQuery(previewQuery(stintId));
   const path = useQuery(pathQuery(stintId));
-  const turns = useQuery(turnsQuery(stintId));
-  const straights = useQuery(straightsQuery(stintId));
   const laps = useQuery(lapsQuery(stintId));
   const [channel, setChannel] = useState<PathChannel>("speed");
 
@@ -97,7 +90,6 @@ function StintDetailRoute() {
         </div>
 
         <aside className="flex flex-col gap-4">
-          <TurnsCard query={turns} />
           <LapsCard query={laps} />
         </aside>
       </div>
@@ -305,43 +297,6 @@ function ChannelPicker({
 // ---------- Side panel cards ----------
 
 type QueryResult<T> = ReturnType<typeof useQuery<T>>;
-
-function TurnsCard({ query }: { query: QueryResult<{ turns: Turn[] }> }) {
-  const turns = query.data?.turns ?? [];
-  return (
-    <Card title="Turns" icon="lucide:rotate-3d" count={turns.length}>
-      {query.isLoading && <ListSkeleton rows={2} />}
-      {!query.isLoading && turns.length === 0 && (
-        <EmptyLine>No turns detected (likely a freeroam or idle stint).</EmptyLine>
-      )}
-      {turns.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {turns.map((c) => (
-            <li
-              key={c.id}
-              className="flex items-center justify-between gap-3 rounded-xl bg-surface-secondary px-3 py-2"
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm font-medium text-foreground">
-                  Turn {c.turn_index}
-                  {c.shape && (
-                    <span className="ml-1 text-muted">· {c.shape}</span>
-                  )}
-                </span>
-                <span className="text-xs text-muted">
-                  {c.direction} · Δθ {(c.peak_delta_theta * (180 / Math.PI)).toFixed(0)}°
-                </span>
-              </div>
-              <span className="text-xs text-muted tabular-nums">
-                κ {Math.abs(c.peak_curvature).toFixed(3)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
 
 function LapsCard({ query }: { query: QueryResult<{ laps: Lap[] }> }) {
   // Lap 0 is the pre-race / out-lap chunk before LapNumber increments — skip

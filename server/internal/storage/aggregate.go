@@ -8,28 +8,20 @@ import (
 
 // stintAggregateInput bundles everything a freshly-closed stint hands the
 // aggregator. parquetPath drives the SQL passes (stint_summary, lap_summary,
-// preview_samples). pathSamples drive the in-memory Turn + Straight passes.
+// preview_samples).
 type stintAggregateInput struct {
-	stintID      string
-	parquetPath  string
-	stintStartNS int64
-	stintEndNS   int64
-	pathSamples  []pathSample // empty for non-race stints — Turn/Straight passes skipped
+	stintID     string
+	parquetPath string
 }
 
-// aggregateStint computes per-stint, per-lap, and 1Hz preview rows, plus
-// Turn and Straight rows for race-category stints. Reads back from the
-// Parquet file just written by the Writer — DuckDB's read_parquet() is fast
-// enough that a round-trip to disk is cheaper than maintaining a parallel
+// aggregateStint computes per-stint, per-lap, and 1Hz preview rows. Reads back
+// from the Parquet file just written by the Writer — DuckDB's read_parquet() is
+// fast enough that a round-trip to disk is cheaper than maintaining a parallel
 // streaming aggregator in Go.
 //
 // Called from Writer.closeStint after the stints row has been updated.
 // Per-lap rows are emitted for every distinct lap_number present, including
 // lap 0 (pre-race / out-lap segments captured before the first lap increment).
-//
-// Turn + Straight insertion happens *before* hot_spots insertion (handled
-// by the Writer) so the XOR CHECK on hot_spots can resolve to a valid
-// segment at INSERT time.
 func aggregateStint(db *sql.DB, in stintAggregateInput) error {
 	pq := escapeSQLLiteral(in.parquetPath)
 	if err := insertStintSummary(db, in.stintID, pq); err != nil {
@@ -40,19 +32,6 @@ func aggregateStint(db *sql.DB, in stintAggregateInput) error {
 	}
 	if err := insertPreviewSamples(db, in.stintID, pq); err != nil {
 		return fmt.Errorf("preview_samples: %w", err)
-	}
-	// Turn + Straight detection runs only when path samples were collected
-	// (Circuit + Sprint stints per ADR 0008). Freeroam / Idle stints skip the
-	// pass entirely — they have no path geometry to segment.
-	if len(in.pathSamples) > 0 {
-		turns := detectTurns(in.pathSamples)
-		if err := insertTurns(db, in.stintID, turns); err != nil {
-			return fmt.Errorf("turns: %w", err)
-		}
-		straights := deriveStraights(turns, in.pathSamples, in.stintStartNS, in.stintEndNS)
-		if err := insertStraights(db, in.stintID, straights); err != nil {
-			return fmt.Errorf("straights: %w", err)
-		}
 	}
 	return nil
 }
@@ -140,50 +119,6 @@ ORDER BY server_recv_ns
 `, escapedPath)
 	_, err := db.Exec(q, stintID)
 	return err
-}
-
-func insertTurns(db *sql.DB, stintID string, turns []turnCandidate) error {
-	for i, t := range turns {
-		idx := i + 1
-		id := fmt.Sprintf("%s_turn_%d", stintID, idx)
-		if _, err := db.Exec(
-			`INSERT INTO turns
-			 (id, stint_id, turn_index, started_at_ns, apex_tick_ns, ended_at_ns,
-			  peak_curvature, peak_delta_theta, direction, shape)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-			id, stintID, idx,
-			t.StartTickNS, t.ApexTickNS, t.EndTickNS,
-			t.PeakCurvature, t.PeakDeltaTheta, t.Direction,
-		); err != nil {
-			return fmt.Errorf("turn %d: %w", idx, err)
-		}
-	}
-	return nil
-}
-
-func insertStraights(db *sql.DB, stintID string, straights []straightCandidate) error {
-	for i, s := range straights {
-		idx := i + 1
-		id := fmt.Sprintf("%s_straight_%d", stintID, idx)
-		// peak_speed_ms is nullable when no samples fall in the range —
-		// only zero-length straights produce that.
-		var peakSpeed any
-		if s.PeakSpeedMS > 0 {
-			peakSpeed = s.PeakSpeedMS
-		}
-		if _, err := db.Exec(
-			`INSERT INTO straights
-			 (id, stint_id, straight_index, started_at_ns, ended_at_ns,
-			  distance_m, peak_speed_ms)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			id, stintID, idx,
-			s.StartTickNS, s.EndTickNS,
-			s.DistanceM, peakSpeed,
-		); err != nil {
-			return fmt.Errorf("straight %d: %w", idx, err)
-		}
-	}
-	return nil
 }
 
 // escapeSQLLiteral escapes single quotes for safe embedding in a SQL string

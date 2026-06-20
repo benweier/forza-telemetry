@@ -91,29 +91,6 @@ export const LapSchema = v.object({
 });
 export const LapsResponseSchema = v.object({ laps: v.array(LapSchema) });
 
-export const TurnSchema = v.object({
-  id: v.string(),
-  turn_index: v.number(),
-  started_at_ns: v.number(),
-  apex_tick_ns: v.number(),
-  ended_at_ns: v.number(),
-  peak_curvature: v.number(),
-  peak_delta_theta: v.number(),
-  direction: v.string(),
-  shape: NullableString,
-});
-export const TurnsResponseSchema = v.object({ turns: v.array(TurnSchema) });
-
-export const StraightSchema = v.object({
-  id: v.string(),
-  straight_index: v.number(),
-  started_at_ns: v.number(),
-  ended_at_ns: v.number(),
-  distance_m: v.number(),
-  peak_speed_ms: NullableNumber,
-});
-export const StraightsResponseSchema = v.object({ straights: v.array(StraightSchema) });
-
 export const PreviewSampleSchema = v.object({
   second_index: v.number(),
   tick_ns: v.number(),
@@ -160,8 +137,6 @@ export type StintDetail = v.InferOutput<typeof StintDetailSchema>;
 export type StintSummary = v.InferOutput<typeof StintSummarySchema>;
 export type CarIdentity = v.InferOutput<typeof CarIdentitySchema>;
 export type Lap = v.InferOutput<typeof LapSchema>;
-export type Turn = v.InferOutput<typeof TurnSchema>;
-export type Straight = v.InferOutput<typeof StraightSchema>;
 export type PreviewSample = v.InferOutput<typeof PreviewSampleSchema>;
 export type PathResponse = v.InferOutput<typeof PathResponseSchema>;
 export type TicksResponse = v.InferOutput<typeof TicksResponseSchema>;

@@ -50,21 +50,6 @@ func newTestServer(t *testing.T) *Server {
 	                                          distance_m, peak_lateral_g, peak_brake_pct)
 	                 VALUES (?, ?, 0, 78.5, 50.0, 1500.0, 1.2, 0.85)`,
 		fixStintID+"_lap_0", fixStintID)
-	mustExec(t, db, `INSERT INTO turns
-	                 (id, stint_id, turn_index, started_at_ns, apex_tick_ns, ended_at_ns,
-	                  peak_curvature, peak_delta_theta, direction, shape)
-	                 VALUES (?, ?, 1, 1100000000, 1150000000, 1200000000, 0.02, 1.4, 'right', NULL)`,
-		fixStintID+"_turn_1", fixStintID)
-	mustExec(t, db, `INSERT INTO straights
-	                 (id, stint_id, straight_index, started_at_ns, ended_at_ns,
-	                  distance_m, peak_speed_ms)
-	                 VALUES (?, ?, 1, 1100000000, 1099999999, 0.0, NULL)`,
-		fixStintID+"_straight_1", fixStintID)
-	mustExec(t, db, `INSERT INTO straights
-	                 (id, stint_id, straight_index, started_at_ns, ended_at_ns,
-	                  distance_m, peak_speed_ms)
-	                 VALUES (?, ?, 2, 1200000001, 1900000000, 800.0, 50.0)`,
-		fixStintID+"_straight_2", fixStintID)
 	mustExec(t, db, `INSERT INTO preview_samples
 	                 (stint_id, second_index, tick_ns, speed_ms, lateral_g, longitudinal_g,
 	                  throttle_pct, brake_pct, rpm, pos_x, pos_y, pos_z, lap_number)
@@ -228,37 +213,6 @@ func TestRESTListLaps(t *testing.T) {
 	laps := body["laps"].([]any)
 	if len(laps) != 1 {
 		t.Fatalf("laps len: want 1 got %d", len(laps))
-	}
-}
-
-func TestRESTListTurns(t *testing.T) {
-	s := newTestServer(t)
-	code, body := doRequest(t, s, "/api/v1/stints/"+fixStintID+"/turns")
-	if code != 200 {
-		t.Fatal(code)
-	}
-	turns := body["turns"].([]any)
-	if len(turns) != 1 {
-		t.Fatalf("turns len: want 1 got %d", len(turns))
-	}
-	first := turns[0].(map[string]any)
-	if first["direction"] != "right" {
-		t.Errorf("direction: want right got %v", first["direction"])
-	}
-	if first["turn_index"].(float64) != 1 {
-		t.Errorf("turn_index: want 1 got %v", first["turn_index"])
-	}
-}
-
-func TestRESTListStraights(t *testing.T) {
-	s := newTestServer(t)
-	code, body := doRequest(t, s, "/api/v1/stints/"+fixStintID+"/straights")
-	if code != 200 {
-		t.Fatal(code)
-	}
-	straights := body["straights"].([]any)
-	if len(straights) != 2 {
-		t.Fatalf("straights len: want 2 got %d", len(straights))
 	}
 }
 

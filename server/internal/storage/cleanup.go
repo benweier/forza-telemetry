@@ -17,8 +17,6 @@ const pollutedStintCond = `stint_type = 'idle' OR car_ordinal = 0 OR car_ordinal
 // childStintTables hold rows keyed by stint_id (FK → stints.id). They must be
 // deleted before the parent stints rows to satisfy the foreign keys.
 var childStintTables = []string{
-	"turns",
-	"straights",
 	"stint_summary",
 	"lap_summary",
 	"preview_samples",

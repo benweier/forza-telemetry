@@ -56,16 +56,8 @@ _Avoid_: Capture, frame, freeze.
 The spatial trajectory of a **Stint**, derived from each **Tick**'s `PositionX/Y/Z`. Rendered as a polyline in the mini-map view, optionally coloured by a per-**Tick** channel (speed, brake force, lateral G). Day-one renderer plots raw world coordinates with auto-fit bounds; a future enhancement may overlay onto Forza region map tiles.
 _Avoid_: Route, trace, line.
 
-**Turn**:
-A **Tick** range within a **Stint** where the driven path deviates from a straight line in a way the track itself imposes (as opposed to driver repositioning on a straight). Detected from **Track Path** curvature, with auxiliary signals (e.g. sustained lateral G, steering input duration) used to suppress false positives from in-lane corrections. Has explicit `entry / apex / exit` phases. Numbered chronologically along the **Stint** (`turn_1`, `turn_2`, …). On **Circuit** stints, curvature-based identity holds the number stable across **Laps** even when one Lap clips the apex differently. **Sprint** stints get a single pass of numbering. Future **Shape** classification (chicane, hairpin, sweeper, dogleg, esses, …) will categorise individual Turns; not yet modelled.
-_Avoid_: Corner, bend, segment, sector. (Historical: previously named "Corner"; renamed when detection was extended to non-Lap stints.)
-
-**Straight**:
-A **Tick** range within a **Stint** that fills the gap between two **Turns** (or between a stint boundary and the first/last **Turn**). Numbered chronologically along the **Stint** (`straight_1`, `straight_2`, …) such that **Straight** `N` lies before **Turn** `N` (with one trailing **Straight** after the final **Turn**). A **Stint** with `K` **Turns** has exactly `K+1` **Straights** covering the rest of the **Tick** range, never overlapping. Only emitted for **Stints** where path geometry was collected (**Circuit** and **Sprint** types); **Freeroam** and **Idle** stints have neither **Turns** nor **Straights**.
-_Avoid_: Straightaway, line, run.
-
 **Comparison**:
-A user-assembled set of 2-6 comparable units (**Laps**, **Turns**, or **Snapshots**) rendered together: time-series channels overlaid on shared charts and **Track Paths** overlaid on the mini-map (ghost-car style, color-coded). Time-series x-axis is always **cumulative distance from entity start**, not elapsed time, to avoid misleading visual offsets when one entity is slower than another. Comparison across different **Cars** or different auto-classified tracks is permitted with a UI warning, never blocked.
+A user-assembled set of 2-6 comparable units (**Laps** or **Snapshots**) rendered together: time-series channels overlaid on shared charts and **Track Paths** overlaid on the mini-map (ghost-car style, color-coded). Time-series x-axis is always **cumulative distance from entity start**, not elapsed time, to avoid misleading visual offsets when one entity is slower than another. Comparison across different **Cars** or different auto-classified tracks is permitted with a UI warning, never blocked.
 _Avoid_: Overlay, diff, vs-mode.
 
 ## Relationships
@@ -79,4 +71,3 @@ _Avoid_: Overlay, diff, vs-mode.
 - A **Lap** references a sub-range of its parent **Stint**'s **Ticks**
 - A **Stint** has zero or more **Bookmarks** (user-marked during playback)
 - A **Snapshot** references one **Tick** (and optionally a window) and persists independently of its source **Stint**'s downsampling state
-- **Circuit** and **Sprint** **Stints** contain zero or more **Turns** and exactly `(turn_count + 1)` **Straights**; **Freeroam** and **Idle** **Stints** have neither

@@ -52,8 +52,6 @@ type stintState struct {
 	category      stintCategory
 	lapMin        uint16
 	lapMax        uint16
-	collectPath   bool
-	pathSamples   []pathSample
 }
 
 // Run consumes ticks from sub until ctx is cancelled or the channel closes.
@@ -139,7 +137,6 @@ func (w *Writer) openStint(t *tick.Tick) error {
 		category:      categorize(t),
 		lapMin:        t.LapNumber,
 		lapMax:        t.LapNumber,
-		collectPath:   categorize(t) == categoryRace,
 	}
 	if _, err := w.store.db.Exec(
 		`INSERT INTO stints (id, session_id, ordinal, started_at_ns, parquet_path)
@@ -164,17 +161,6 @@ func (w *Writer) appendTick(t *tick.Tick) error {
 	}
 	if t.LapNumber > w.cur.lapMax {
 		w.cur.lapMax = t.LapNumber
-	}
-	if w.cur.collectPath {
-		w.cur.pathSamples = append(w.cur.pathSamples, pathSample{
-			tickNS:  t.ServerRecvNS,
-			x:       t.PositionX,
-			z:       t.PositionZ,
-			speedMS: t.Speed,
-			longG:   t.LongitudinalG,
-			latG:    t.LateralG,
-			lap:     t.LapNumber,
-		})
 	}
 	// Backfill car identity once a non-zero CarOrdinal arrives — splitReason
 	// already ignores zero→nonzero transitions, so opening on an unknown car
@@ -238,11 +224,8 @@ func (w *Writer) closeStint(reason string) error {
 	stintID := stintRowID(w.sessionID, cur.ordinal)
 
 	if err := aggregateStint(w.store.db, stintAggregateInput{
-		stintID:      stintID,
-		parquetPath:  cur.path,
-		stintStartNS: cur.startedAtNS,
-		stintEndNS:   cur.lastTickNS,
-		pathSamples:  cur.pathSamples,
+		stintID:     stintID,
+		parquetPath: cur.path,
 	}); err != nil {
 		w.logger.Error("aggregate stint", "stint", cur.id, "err", err)
 		if closeErr == nil {
@@ -250,22 +233,12 @@ func (w *Writer) closeStint(reason string) error {
 		}
 	}
 
-	var turnCount, straightCount int
-	_ = w.store.db.QueryRow(
-		`SELECT COUNT(*) FROM turns WHERE stint_id = ?`, stintID,
-	).Scan(&turnCount)
-	_ = w.store.db.QueryRow(
-		`SELECT COUNT(*) FROM straights WHERE stint_id = ?`, stintID,
-	).Scan(&straightCount)
-
 	w.logger.Info("stint closed",
 		"stint", cur.id,
 		"reason", reason,
 		"type", stintType,
 		"ticks", cur.tickCount,
 		"duration_ms", duration.Milliseconds(),
-		"turns", turnCount,
-		"straights", straightCount,
 	)
 	return closeErr
 }

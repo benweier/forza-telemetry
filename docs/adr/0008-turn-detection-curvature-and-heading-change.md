@@ -1,5 +1,9 @@
 # Turn detection from path curvature and per-region heading change
 
+> **Superseded by [ADR 0009](./0009-remove-turn-and-straight-detection.md):**
+> Turn and Straight detection were removed entirely. This ADR is retained for
+> historical context only.
+
 Supersedes [ADR 0007](./0007-corner-detection-curvature-and-lateral-g.md).
 
 > **Revision (post-implementation):** the original draft of this ADR included

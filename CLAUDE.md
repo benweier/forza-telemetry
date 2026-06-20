@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-user, LAN-only telemetry tool for Forza Horizon (primarily FH6, with FH5 support). A Go server captures UDP Data Out, persists it as Parquet + DuckDB, serves REST + WebSocket, and embeds a TanStack Start SPA in the same binary. The frontend dashboard browses captured sessions/stints and renders live + historical analytics.
 
-`CONTEXT.md` is the canonical domain glossary — **read it before naming or modelling anything new** (Session, Stint, Lap, Tick, Packet, Stint Type, Hot-spot, Bookmark, Snapshot, Track Path, Corner, Comparison have precise definitions and "avoid" lists).
+`CONTEXT.md` is the canonical domain glossary — **read it before naming or modelling anything new** (Session, Stint, Lap, Tick, Packet, Stint Type, Hot-spot, Bookmark, Snapshot, Track Path, Comparison have precise definitions and "avoid" lists).
 
 ## Commands
 
@@ -50,7 +50,6 @@ Forza UDP → ingest.Listener → parser (FH5 Sled/Dash, FH6 Dash)
                     │
                     ├→ stint detector (gap/type/car splits, sub-2s discard)
                     ├→ hot-spot detector (lat_g, brake, top_speed)
-                    ├→ corner detector (curvature + lat G, circuit stints only)
                     └→ aggregator (per-stint/lap summary + 1Hz preview)
 api.REST (sessions, stints, sub-resources, ticks) ← reads DuckDB + Parquet
 api.web (SPA embed)                              ← serves TanStack client _shell.html
@@ -76,7 +75,7 @@ api.web (SPA embed)                              ← serves TanStack client _she
 ## Important docs
 
 - **`CONTEXT.md`** — domain glossary. Canonical source for terminology.
-- **`docs/adr/*`** — committed architectural decisions (DuckDB+Parquet, raw-tick retention, additive Tick schema, msgpack WS transport, XDG paths, stint splits, corner detection). Locked — read before contradicting.
+- **`docs/adr/*`** — committed architectural decisions (DuckDB+Parquet, raw-tick retention, additive Tick schema, msgpack WS transport, XDG paths, stint splits, turn-detection removal). Locked — read before contradicting.
 - **`docs/api.md`** — v1 REST schema spec with example responses + versioning policy (additive under `v1`; breaking → `v2`).
 - **`docs/data-needed.md`** — open empirical questions (FH6 byte 323 semantics, CarGroup enum, threshold tuning, missing detectors). **Update or remove entries when new captures resolve them.**
 - **`client/DESIGN.md`** — Glass theme tokens locked. Use semantic HeroUI/Tailwind tokens (`bg-surface`, `text-foreground`); never inline OKLCH/hex.
@@ -89,7 +88,6 @@ api.web (SPA embed)                              ← serves TanStack client _she
 - **`@iconify/react` silently 404s missing icon names** — render as empty `<span>`. Use `lucide:*` (universal set). `gravity-ui:*` only ships a handful of icons despite docs implying it's the canonical set.
 - **TanStack Start SPA build emits `_shell.html`, not `index.html`** — `server/internal/web/embed.go` fallback targets `_shell.html`. The `_shell.html` plus all dist/client/* are embedded into the Go binary via `just copy-client-dist`.
 - **`gen-types` is one-way** — Go `Tick` → TS `TickFrame`. Hand-editing the generated file gets stomped. Add fields in `tick.go` first, then `parquetRow`, then regenerate.
-- **Stint detector requires `categorize(t) == race`** for path-sample collection — only circuit stints get corner detection (sprint stints have no laps by definition). Free-roam stints skip path collection to save memory.
 - **`CurrentRaceTime > 0` is the freeroam-vs-race discriminator** today — see `data-needed.md` for confirmation status against real race captures.
 - **DuckDB is single-writer.** Only one `forza-telemetry serve` process can hold the lock on `forza.duckdb` at a time. Starting a second instance fails with `Could not set lock on file ... Conflicting lock is held in <other-pid>`. Kill the prior process (`pgrep -f forza-telemetry | xargs kill`) before relaunching.
 - **Vite 8 uses rolldown, which logs `INVALID_ANNOTATION` non-fatally** against HeroUI Pro's pre-minified `/*#__PURE__*/` comments. `vite.config.ts` filters them via `build.rollupOptions.onwarn`. Build still succeeds either way; the filter is to keep real warnings visible.

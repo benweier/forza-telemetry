@@ -6,9 +6,10 @@ import (
 )
 
 // schemaStatements is the canonical DDL applied at startup. The Tick schema is
-// additive only per ADR 0003; the domain tables (turns / straights / hot_spots)
-// follow whatever shape the current detectors emit. After ADR 0008 superseded
-// ADR 0007, the old `corners` table was dropped outright.
+// additive only per ADR 0003; the domain tables follow whatever shape the
+// current aggregator emits. Turn / Straight detection (ADRs 0007/0008) was
+// removed (ADR 0009); existing databases keep their orphaned turns/straights
+// tables harmlessly — they are simply no longer created or read.
 var schemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS sessions (
 		id            TEXT PRIMARY KEY,
@@ -33,29 +34,6 @@ var schemaStatements = []string{
 		parquet_path     TEXT NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_stints_session ON stints(session_id)`,
-	`CREATE TABLE IF NOT EXISTS turns (
-		id                TEXT PRIMARY KEY,
-		stint_id          TEXT NOT NULL REFERENCES stints(id),
-		turn_index        INTEGER NOT NULL,
-		started_at_ns     BIGINT NOT NULL,
-		apex_tick_ns      BIGINT NOT NULL,
-		ended_at_ns       BIGINT NOT NULL,
-		peak_curvature    DOUBLE NOT NULL,
-		peak_delta_theta  DOUBLE NOT NULL,
-		direction         TEXT NOT NULL,
-		shape             TEXT
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_turns_stint ON turns(stint_id, turn_index)`,
-	`CREATE TABLE IF NOT EXISTS straights (
-		id              TEXT PRIMARY KEY,
-		stint_id        TEXT NOT NULL REFERENCES stints(id),
-		straight_index  INTEGER NOT NULL,
-		started_at_ns   BIGINT NOT NULL,
-		ended_at_ns     BIGINT NOT NULL,
-		distance_m      DOUBLE NOT NULL,
-		peak_speed_ms   DOUBLE
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_straights_stint ON straights(stint_id, straight_index)`,
 	`CREATE TABLE IF NOT EXISTS stint_summary (
 		stint_id          TEXT PRIMARY KEY REFERENCES stints(id),
 		top_speed_ms      DOUBLE,

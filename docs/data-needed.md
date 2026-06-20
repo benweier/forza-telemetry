@@ -78,19 +78,6 @@ or what new questions surfaced.
 - **Code dep:** drives every stint split + final `stint_type` label.
 - **Edge case to verify:** single transient tick of opposite category causes a split today (no hysteresis). Real captures may show flapping that warrants a debounce window.
 
-### Turn detector (per ADR 0008)
-- **Direction convention:** `right` if signed κ > 0 under `atan2(dx, dz)`. Verified on synthetic paths only.
-- **Needs:** drive a known track with catalogued turn directions (e.g., Goliath, Mulege circuit) — confirm right/left labels match reality.
-- **Threshold tuning (first-pass guesses):**
-  - `κ_min`: 0.01 rad/m — minimum curvature for a candidate region.
-  - `Δθ_min`: ~15° (0.26 rad) — minimum per-region accumulated heading change. Rejects swerves on straights (low net Δθ) while keeping shallow real turns.
-  - `long_g_brake_threshold`: 0.2g — boundary extension backwards while still braking.
-  - `long_g_accel_threshold`: 0.2g — boundary extension forwards while still accelerating out.
-  - Minimum run-length per κ-region: TBD (a few resampled metres) to suppress spike noise.
-- **Needs:** real race captures across varied corner shapes (fast sweepers, hairpins, chicanes) to confirm `Δθ_min` correctly distinguishes shallow real corners from in-lane corrections.
-- **Stint-level identity model (per ADR 0008):** one row per (Stint × Turn). Per-Lap variation derived from the stored tick range at query time. The pre-ADR-0008 "cross-lap corner identity" problem is dissolved by this — Turn 3 is one row, regardless of how many Laps drove through it.
-- **Shape classification (deferred):** chicane / hairpin / sweeper / dogleg / esses categorisation reads the stored `peak_curvature`, `peak_delta_theta`, and the sequence of adjacent Turn rows. Needs labelled training examples once Turn detection is stable.
-
 ---
 
 ## Operations / capture pipeline
