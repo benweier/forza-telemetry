@@ -38,3 +38,37 @@ export function useSessionDownsample() {
     },
   });
 }
+
+export function useSessionDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/sessions/${id}`, { method: "DELETE" }),
+    onError: () => toast.danger("Couldn't delete session"),
+    onSuccess: (_data, id) => {
+      // Drop the detail cache (the resource is gone — don't let an invalidate
+      // refetch it into a 404), refresh the list, and clear stint pages that
+      // may have belonged to this session (broad but safe for a single user).
+      qc.removeQueries({ queryKey: ["sessions", id] });
+      void qc.invalidateQueries({ queryKey: ["sessions"], exact: true });
+      qc.removeQueries({ queryKey: ["stints"] });
+      toast.success("Session deleted");
+    },
+  });
+}
+
+export function useStintDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    // sessionId rides along only so callers can navigate to the parent.
+    mutationFn: ({ id }: { id: string; sessionId: string }) =>
+      apiFetch(`/stints/${id}`, { method: "DELETE" }),
+    onError: () => toast.danger("Couldn't delete stint"),
+    onSuccess: (_data, { id }) => {
+      // Remove the stint detail + its sub-resource caches (prefix match), and
+      // refresh sessions so the parent's stint list + counts update.
+      qc.removeQueries({ queryKey: ["stints", id] });
+      void qc.invalidateQueries({ queryKey: ["sessions"] });
+      toast.success("Stint deleted");
+    },
+  });
+}

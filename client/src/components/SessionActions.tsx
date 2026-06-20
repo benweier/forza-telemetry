@@ -1,7 +1,9 @@
 /* Hallmark · component: session-actions · genre: dashboard · theme: Glass */
 import { Button } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { useSessionDownsample, useSessionPin } from "~/utils/mutations";
+import { useNavigate } from "@tanstack/react-router";
+import { ConfirmDeleteButton } from "~/components/ConfirmDeleteButton";
+import { useSessionDelete, useSessionDownsample, useSessionPin } from "~/utils/mutations";
 
 /**
  * Icon-only pin toggle. Warning-coloured pin when pinned, muted when not.
@@ -45,5 +47,30 @@ export function DownsampleButton({ id, downsampled }: { id: string; downsampled:
       <Icon icon="lucide:minimize-2" className="mr-1.5 size-4" />
       {downsampled ? "Downsampled" : "Downsample"}
     </Button>
+  );
+}
+
+/**
+ * Delete the whole session (and all its stints). Disabled while the session is
+ * still recording. On success, navigates back to the sessions list.
+ */
+export function DeleteSessionButton({ id, disabled }: { id: string; disabled?: boolean }) {
+  const { mutate, isPending } = useSessionDelete();
+  const navigate = useNavigate();
+  return (
+    <ConfirmDeleteButton
+      triggerLabel="Delete"
+      heading="Delete this session?"
+      body={
+        <p>
+          This permanently deletes the session and <strong>all of its stints</strong>, including
+          their captured Parquet files. This can&rsquo;t be undone.
+        </p>
+      }
+      confirmLabel="Delete session"
+      isDisabled={disabled}
+      isPending={isPending}
+      onConfirm={() => mutate(id, { onSuccess: () => void navigate({ to: "/sessions" }) })}
+    />
   );
 }

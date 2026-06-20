@@ -4,6 +4,7 @@ import { Icon } from "@iconify/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { DeleteStintButton } from "~/components/StintActions";
 import { TickPreviewChart } from "~/components/TickPreviewChart";
 import { TrackPathMap, type PathChannel } from "~/components/TrackPathMap";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
@@ -131,21 +132,24 @@ function Header({ stint }: { stint: StintDetail }) {
   const inProgress = stint.ended_at_ns === null;
   return (
     <header className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-xs font-medium tracking-wider text-muted uppercase">Stint</span>
-        {stint.stint_type && (
-          <Chip size="sm" variant="soft">
-            {stint.stint_type}
-          </Chip>
-        )}
-        {stint.car.ordinal !== null && stint.car.ordinal !== 0 && (
-          <span className="text-xs text-muted tabular-nums">car #{stint.car.ordinal}</span>
-        )}
-        {inProgress && (
-          <Chip size="sm" variant="soft" color="success">
-            Live
-          </Chip>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-xs font-medium tracking-wider text-muted uppercase">Stint</span>
+          {stint.stint_type && (
+            <Chip size="sm" variant="soft">
+              {stint.stint_type}
+            </Chip>
+          )}
+          {stint.car.ordinal !== null && stint.car.ordinal !== 0 && (
+            <span className="text-xs text-muted tabular-nums">car #{stint.car.ordinal}</span>
+          )}
+          {inProgress && (
+            <Chip size="sm" variant="soft" color="success">
+              Live
+            </Chip>
+          )}
+        </div>
+        <DeleteStintButton id={stint.id} sessionId={stint.session_id} disabled={inProgress} />
       </div>
       <h1 className="font-mono text-2xl font-semibold tracking-tight text-foreground">
         {stint.id}

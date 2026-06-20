@@ -4,7 +4,7 @@ import { Chip, Skeleton } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { DownsampleButton, PinToggle } from "~/components/SessionActions";
+import { DeleteSessionButton, DownsampleButton, PinToggle } from "~/components/SessionActions";
 import { formatCount, formatDateTime, formatDurationNS } from "~/utils/format";
 import { sessionQuery } from "~/utils/queries";
 import type { StintListRow } from "~/utils/schemas";
@@ -81,6 +81,7 @@ function SessionHeader({
         </div>
         <div className="flex items-center gap-2">
           <DownsampleButton id={sessionId} downsampled={downsampled} />
+          <DeleteSessionButton id={sessionId} disabled={inProgress} />
           <PinToggle id={sessionId} pinned={pinned} />
         </div>
       </div>
