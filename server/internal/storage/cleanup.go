@@ -22,6 +22,31 @@ var childStintTables = []string{
 	"preview_samples",
 }
 
+// dropLegacyTables removes tables from superseded schema versions that linger
+// in databases created by older builds: turns / straights (removed in ADR 0009)
+// and hot_spots (dropped per the ADR 0008 revision). Each keeps a foreign key
+// onto stints (and hot_spots onto turns/straights), which silently blocks
+// stint/session deletion until they are gone. Dropped in dependency order
+// (hot_spots references the others) and idempotent — a no-op on a current DB.
+func dropLegacyTables(db *sql.DB, logger *slog.Logger) error {
+	for _, table := range []string{"hot_spots", "turns", "straights"} {
+		var exists int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?`, table,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("check legacy table %s: %w", table, err)
+		}
+		if exists == 0 {
+			continue
+		}
+		if _, err := db.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
+			return fmt.Errorf("drop legacy table %s: %w", table, err)
+		}
+		logger.Info("dropped legacy table", "table", table)
+	}
+	return nil
+}
+
 // sweepPollutedStints removes polluted stints (see pollutedStintCond), their
 // child rows, and their Parquet files. It is idempotent — a no-op once the DB
 // is clean — and is called once at startup, before any Writer opens, under the

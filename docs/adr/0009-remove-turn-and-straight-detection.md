@@ -40,8 +40,10 @@ Strip it end to end:
 
 - The **Tick** schema (ADR 0003) is unaffected — Turns/Straights were always a
   separate sub-resource, never Tick fields.
-- Existing databases keep their `turns` / `straights` tables as harmless
-  orphans; they are simply no longer created, written, or read. No migration is
-  run (single-user local tool — not worth the destructive DDL).
+- Older databases carry leftover `turns` / `straights` tables (and `hot_spots`,
+  dropped earlier) whose foreign keys onto `stints` would block stint/session
+  deletion. `dropLegacyTables` removes them at startup — idempotent, and a no-op
+  on a current DB. (The first cut of this ADR called them "harmless orphans";
+  they were not — the later delete feature surfaced the blocked FK.)
 - If per-place identity is ever wanted again, it returns as a fresh ADR built on
   whatever Comparison actually needs, rather than carried speculatively.

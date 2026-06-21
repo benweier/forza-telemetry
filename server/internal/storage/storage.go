@@ -46,6 +46,13 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	store := &Store{dataDir: dataDir, db: db, logger: logger.With("component", "storage")}
+	// Drop tables from superseded schema versions (turns / straights / hot_spots)
+	// whose lingering foreign keys onto stints would block stint/session deletes.
+	// Runs before the sweeps (which also delete stints) and any Writer.
+	if err := dropLegacyTables(db, store.logger); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("drop legacy tables: %w", err)
+	}
 	// Drop any polluted stints (idle / no-car) persisted by an older build.
 	// Idempotent and runs before any Writer opens — the DuckDB single-writer
 	// lock means nothing else can be mutating stints here.

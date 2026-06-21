@@ -8,8 +8,9 @@ import (
 // schemaStatements is the canonical DDL applied at startup. The Tick schema is
 // additive only per ADR 0003; the domain tables follow whatever shape the
 // current aggregator emits. Turn / Straight detection (ADRs 0007/0008) was
-// removed (ADR 0009); existing databases keep their orphaned turns/straights
-// tables harmlessly — they are simply no longer created or read.
+// removed (ADR 0009); the now-superseded turns/straights/hot_spots tables are
+// dropped from older databases at startup by dropLegacyTables (their lingering
+// foreign keys would otherwise block stint/session deletion).
 var schemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS sessions (
 		id            TEXT PRIMARY KEY,
