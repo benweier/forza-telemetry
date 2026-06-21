@@ -30,6 +30,26 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         ws: true,
+        // Swallow benign WebSocket-teardown noise. The live telemetry WS gets
+        // torn down on every reload / HMR / route change; the proxy then logs
+        // ECONNRESET ("ws proxy socket error") and EPIPE ("ws proxy error").
+        // Vite attaches its own error loggers AFTER this `configure` runs, so we
+        // can't unregister them — instead we wrap `emit` (here, first) to drop
+        // those two codes before Vite's listeners see them. Real failures like
+        // ECONNREFUSED (server down) still log loudly.
+        configure: (proxy) => {
+          const benign = (err: unknown) =>
+            !!err && ["ECONNRESET", "EPIPE"].includes((err as NodeJS.ErrnoException).code ?? "");
+          const muteErrors = (em: { emit: (event: string, ...args: unknown[]) => boolean }) => {
+            const original = em.emit.bind(em);
+            em.emit = (event, ...args) =>
+              event === "error" && benign(args[0]) ? false : original(event, ...args);
+          };
+          muteErrors(proxy as never);
+          // The per-socket error fires on the upgraded socket, not the proxy —
+          // wrap it too, before Vite's proxyReqWs handler attaches its logger.
+          proxy.on("proxyReqWs", (_proxyReq, _req, socket) => muteErrors(socket as never));
+        },
       },
       "/healthz": {
         target: "http://localhost:8080",

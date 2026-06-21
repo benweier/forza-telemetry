@@ -91,6 +91,8 @@ api.web (SPA embed)                              ← serves TanStack client _she
 - **`CurrentRaceTime > 0` is the freeroam-vs-race discriminator** today — see `data-needed.md` for confirmation status against real race captures.
 - **DuckDB is single-writer.** Only one `forza-telemetry serve` process can hold the lock on `forza.duckdb` at a time. Starting a second instance fails with `Could not set lock on file ... Conflicting lock is held in <other-pid>`. Kill the prior process (`pgrep -f forza-telemetry | xargs kill`) before relaunching.
 - **Vite 8 uses rolldown, which logs `INVALID_ANNOTATION` non-fatally** against HeroUI Pro's pre-minified `/*#__PURE__*/` comments. `vite.config.ts` filters them via `build.rollupOptions.onwarn`. Build still succeeds either way; the filter is to keep real warnings visible.
+- **`react-resizable-panels@4` renamed its exports and changed size units** — it's `Group` (prop `orientation`, not `direction`) + `Separator`, not `PanelGroup`/`PanelResizeHandle`; `Panel` is unchanged. And **numeric** `defaultSize`/`minSize` are *pixels* — percentages must be strings (`"45%"`). A bare `defaultSize={45}` silently renders a 45px panel; `tsc` and the build stay green, only the browser shows it. See `components/LivePreview.tsx`.
+- **MediaMTX's empty/built-in config has no catch-all path** — run with no config file it rejects all publishing with `path '<name>' is not configured`, which OBS surfaces as a misleading "could not access the specified channel or stream key". The repo ships a 2-line `mediamtx.yml` (`paths: all_others:`) that `just media` passes explicitly; all other settings (WebRTC :8889, no auth) stay default. See ADR 0010.
 
 ## Workflow conventions
 

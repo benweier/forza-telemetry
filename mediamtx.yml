@@ -1,0 +1,10 @@
+# Minimal MediaMTX config for the game-preview WebRTC relay (ADR 0010).
+#
+# MediaMTX's built-in (empty) config has NO catch-all path, so it rejects
+# publishing to an arbitrary path name with:
+#   {"error":"path 'mystream' is not configured"}
+# Declaring `all_others` allows any path (OBS can WHIP-publish to /mystream/whip,
+# the browser can WHEP-read /mystream/whep). Every other setting — WebRTC on
+# :8889, no auth — keeps its default, so this file stays tiny.
+paths:
+  all_others:

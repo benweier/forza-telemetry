@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PreviewShell, PreviewToggle } from "~/components/LivePreview";
 import { InstrumentCanvas } from "~/instrument/InstrumentCanvas";
 import { LiveViewToggle, StatusPill, useLiveSocket, useLiveStatus } from "./live";
 
@@ -16,11 +17,14 @@ function InstrumentRoute() {
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Instrument</h1>
         </div>
         <div className="flex items-center gap-3">
+          <PreviewToggle />
           <LiveViewToggle active="instrument" />
           <StatusPill connected={connected} fresh={fresh} />
         </div>
       </header>
-      <InstrumentCanvas />
+      <PreviewShell>
+        <InstrumentCanvas />
+      </PreviewShell>
     </section>
   );
 }

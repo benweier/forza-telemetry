@@ -1,0 +1,78 @@
+<!doctype html>
+<!--
+  Step 0 spike (ADR 0010 / docs/plans/game-preview.md) — THROWAWAY.
+
+  Goal: prove WHEP playback works in a browser loaded over plain http://<lan-ip>
+  (NOT localhost), from a phone/tablet on the LAN. The risk: RTCPeerConnection
+  recvonly might be secure-context-gated like getUserMedia. If it is, this page
+  errors and the LAN deployment needs HTTPS.
+
+  Setup:
+    1. Run MediaMTX on the game PC (or any LAN box).
+    2. OBS -> Settings -> Stream -> Service "WHIP", Server
+       http://<mediamtx-host>:8889/mystream/whip  -> Start Streaming.
+    3. Serve THIS file over the LAN, bound to all interfaces (not 127.0.0.1):
+         python3 -m http.server 8000 --bind 0.0.0.0   # run from this dir
+    4. On a phone/tablet on the same LAN, open:
+         http://<server-lan-ip>:8000/whep.html
+       Set the WHEP URL to http://<mediamtx-host>:8889/mystream/whep and Connect.
+
+  PASS = video plays. FAIL = a secure-context / DTLS error in the log box -> HTTPS detour.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WHEP spike</title>
+    <style>
+      body { font: 15px system-ui, sans-serif; margin: 0; padding: 16px; background: #111; color: #eee; }
+      input { width: 100%; padding: 10px; box-sizing: border-box; font-size: 16px; }
+      button { padding: 10px 16px; font-size: 16px; margin-top: 8px; }
+      video { width: 100%; background: #000; margin-top: 12px; border-radius: 8px; }
+      pre { white-space: pre-wrap; word-break: break-all; background: #000; padding: 10px; border-radius: 8px; min-height: 3em; }
+    </style>
+  </head>
+  <body>
+    <h1>WHEP spike</h1>
+    <input id="url" value="http://192.168.1.10:8889/mystream/whep" />
+    <button id="go">Connect</button>
+    <video id="vid" autoplay muted playsinline controls></video>
+    <pre id="log"></pre>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const log = (m) => { $("log").textContent += m + "\n"; };
+
+      $("go").onclick = async () => {
+        $("log").textContent = "";
+        log("secureContext=" + window.isSecureContext + " (false is the case we're testing)");
+        try {
+          const pc = new RTCPeerConnection();
+          pc.addTransceiver("video", { direction: "recvonly" });
+          pc.addTransceiver("audio", { direction: "recvonly" });
+          pc.ontrack = (e) => { $("vid").srcObject = e.streams[0]; log("track: " + e.track.kind); };
+          pc.oniceconnectionstatechange = () => log("ice: " + pc.iceConnectionState);
+
+          await pc.setLocalDescription(await pc.createOffer());
+          // Non-trickle: wait for ICE gathering to finish, then send the full SDP.
+          await new Promise((res) => {
+            if (pc.iceGatheringState === "complete") return res();
+            pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && res();
+          });
+
+          log("POST offer -> " + $("url").value);
+          const r = await fetch($("url").value, {
+            method: "POST",
+            headers: { "Content-Type": "application/sdp" },
+            body: pc.localDescription.sdp,
+          });
+          if (!r.ok) throw new Error("WHEP HTTP " + r.status + " " + (await r.text()));
+          await pc.setRemoteDescription({ type: "answer", sdp: await r.text() });
+          log("answer set — waiting for media…");
+        } catch (e) {
+          log("ERROR: " + (e && e.message ? e.message : e));
+        }
+      };
+    </script>
+  </body>
+</html>

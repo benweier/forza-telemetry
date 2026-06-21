@@ -1,7 +1,7 @@
 // client/src/components/hud/DynoCurve.tsx
 /* Hallmark · component: dyno-curve · genre: dashboard · theme: Glass */
 import { useEffect, useRef } from "react";
-import { useLiveStore } from "~/utils/live-store";
+import { displayTick, useLiveStore } from "~/utils/live-store";
 import { DynoEnvelope } from "./engine";
 import { EngineBadge } from "./EngineBadge";
 import type { TickFrame } from "~/types/tick.generated";
@@ -116,13 +116,10 @@ export function DynoCurve({ tick }: { tick: TickFrame }) {
 
     const loop = () => {
       try {
-        const ring = useLiveStore.getState().ring;
-        if (ring.length > 0) {
-          const newest = ring[ring.length - 1];
-          if (newest !== lastNewest) {
-            lastNewest = newest;
-            redraw(newest);
-          }
+        const newest = displayTick(useLiveStore.getState());
+        if (newest && newest !== lastNewest) {
+          lastNewest = newest;
+          redraw(newest);
         }
       } catch (error) {
         if (!loggedError) {

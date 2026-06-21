@@ -2,8 +2,8 @@
  * states: default · empty
  */
 import { useEffect, useRef } from "react";
+import { displayIndex, useLiveStore } from "~/utils/live-store";
 import type { TickFrame } from "~/types/tick.generated";
-import { useLiveStore } from "~/utils/live-store";
 
 /**
  * Forza Data Out streams at ~60 Hz. The window is sized by sample count, not
@@ -137,14 +137,17 @@ export function Sparkline({
       // `finally` so one bad frame can't blank the canvas for the session. Log
       // the first failure (not every frame) so it isn't swallowed silently.
       try {
-        const ring = useLiveStore.getState().ring;
-        if (ring.length > 0) {
-          // Redraw only when a new frame arrived (a fresh object ref from the WS
-          // decode), so the graph advances per message, not per animation frame.
-          const newest = ring[ring.length - 1];
+        const s = useLiveStore.getState();
+        // `end` is the delayed "now" index in preview mode, else the latest.
+        const end = displayIndex(s);
+        if (end >= 0) {
+          // Redraw only when the displayed-newest changed (a fresh object ref),
+          // so the graph advances per message, not per animation frame. Slice
+          // only when delayed — the off path passes the ring as-is (no copy).
+          const newest = s.ring[end];
           if (newest !== lastNewest) {
             lastNewest = newest;
-            redraw(ring);
+            redraw(end === s.ring.length - 1 ? s.ring : s.ring.slice(0, end + 1));
           }
         }
       } catch (error) {

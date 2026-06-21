@@ -32,3 +32,9 @@ coverage.*
 /.ai/
 .superpowers/
 /.mcp.json
+
+# Bundled MediaMTX relay binary for the game preview (downloaded, not committed)
+/mediamtx_*/
+# MediaMTX runtime-generated TLS certs (created in CWD on first run)
+/auto.crt
+/auto.key

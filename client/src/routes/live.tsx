@@ -6,9 +6,10 @@ import { useEffect, useState } from "react";
 import { BoostGauge } from "~/components/hud/BoostGauge";
 import { CarDiagram } from "~/components/hud/CarDiagram";
 import { DynoCurve } from "~/components/hud/DynoCurve";
+import { PreviewShell, PreviewToggle } from "~/components/LivePreview";
 import { Sparkline } from "~/components/Sparkline";
 import { formatCount, gearLabel } from "~/utils/format";
-import { useLiveStore } from "~/utils/live-store";
+import { useDisplayTick, useLiveStore } from "~/utils/live-store";
 import { LiveSocket } from "~/utils/ws";
 import type { TickFrame } from "~/types/tick.generated";
 
@@ -50,9 +51,10 @@ export function useLiveStatus(): { connected: boolean; fresh: boolean } {
 
 function LiveRoute() {
   // Subscribe individually to minimise re-render fan-out — push() touches
-  // ring on every frame but only `latest` and `lastPushedAt` matter for the
-  // HUD body, and `connected` is independent.
-  const latest = useLiveStore((s) => s.latest);
+  // ring on every frame but only the displayed tick and `lastPushedAt` matter
+  // for the HUD body, and `connected` is independent. `useDisplayTick` returns
+  // `latest` normally, or the delayed tick when game-preview is on.
+  const latest = useDisplayTick();
 
   useLiveSocket();
   const { connected, fresh } = useLiveStatus();
@@ -65,13 +67,16 @@ function LiveRoute() {
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Live HUD</h1>
         </div>
         <div className="flex items-center gap-3">
+          <PreviewToggle />
           <LiveViewToggle active="hud" />
           <StatusPill connected={connected} fresh={fresh} />
         </div>
       </header>
 
-      {!latest && <WaitingPanel connected={connected} />}
-      {latest && <HUD tick={latest} fresh={fresh} />}
+      <PreviewShell>
+        {!latest && <WaitingPanel connected={connected} />}
+        {latest && <HUD tick={latest} fresh={fresh} />}
+      </PreviewShell>
     </section>
   );
 }
@@ -135,47 +140,49 @@ function HUD({ tick, fresh }: { tick: TickFrame; fresh: boolean }) {
   const redlinePct = 0.88;
 
   return (
-    <div
-      className="grid items-stretch gap-4 lg:grid-cols-[1.25fr_0.95fr_0.95fr]"
-      data-stale={!fresh}
-    >
-      {/* Column 1 — drive inputs */}
-      <div className="flex flex-col gap-4">
-        <SpeedCard kmh={kmh} gear={tick.g ?? 0} fresh={fresh} />
-        <RpmBar rpm={rpm} rpmMax={tick.rmx ?? 0} pct={rpmPct} redlinePct={redlinePct} />
-        <div className="grid grid-cols-2 gap-4">
-          <InputBar label="Throttle" value={tick.tp ?? 0} tone="success" />
-          <InputBar label="Brake" value={tick.bp ?? 0} tone="danger" />
+    // Container queries (not viewport `lg:`) so the HUD reflows to its own width
+    // — essential when the game-preview split shrinks the dashboard pane while the
+    // viewport stays wide. 1 col → 2 cols (@xl) → the 3-col layout (@3xl).
+    <div className="@container" data-stale={!fresh}>
+      <div className="grid items-stretch gap-4 @xl:grid-cols-2 @3xl:grid-cols-[1.25fr_0.95fr_0.95fr]">
+        {/* Column 1 — drive inputs */}
+        <div className="flex flex-col gap-4">
+          <SpeedCard kmh={kmh} gear={tick.g ?? 0} fresh={fresh} />
+          <RpmBar rpm={rpm} rpmMax={tick.rmx ?? 0} pct={rpmPct} redlinePct={redlinePct} />
+          <div className="grid grid-cols-2 gap-4">
+            <InputBar label="Throttle" value={tick.tp ?? 0} tone="success" />
+            <InputBar label="Brake" value={tick.bp ?? 0} tone="danger" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Sparkline
+              label="Speed"
+              unit="km/h"
+              colorVar="--accent"
+              accessor={(t) => (t.sp ?? 0) * 3.6}
+              format={(v) => `${Math.round(v)}`}
+            />
+            <Sparkline
+              label="Lateral G"
+              unit="G"
+              colorVar="--warning"
+              signed
+              accessor={(t) => t.lg ?? 0}
+              format={(v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`}
+            />
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Sparkline
-            label="Speed"
-            unit="km/h"
-            colorVar="--accent"
-            accessor={(t) => (t.sp ?? 0) * 3.6}
-            format={(v) => `${Math.round(v)}`}
-          />
-          <Sparkline
-            label="Lateral G"
-            unit="G"
-            colorVar="--warning"
-            signed
-            accessor={(t) => t.lg ?? 0}
-            format={(v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`}
-          />
-        </div>
+
+        {/* Column 2 — chassis centerpiece */}
+        <CarDiagram tick={tick} fresh={fresh} />
+
+        {/* Column 3 — engine + forces */}
+        <aside className="flex flex-col gap-4">
+          <DynoCurve tick={tick} />
+          <BoostGauge tick={tick} fresh={fresh} />
+          <GForcePanel latG={tick.lg ?? 0} longG={tick.lng ?? 0} />
+          <MetaPanel tick={tick} />
+        </aside>
       </div>
-
-      {/* Column 2 — chassis centerpiece */}
-      <CarDiagram tick={tick} fresh={fresh} />
-
-      {/* Column 3 — engine + forces */}
-      <aside className="flex flex-col gap-4">
-        <DynoCurve tick={tick} />
-        <BoostGauge tick={tick} fresh={fresh} />
-        <GForcePanel latG={tick.lg ?? 0} longG={tick.lng ?? 0} />
-        <MetaPanel tick={tick} />
-      </aside>
     </div>
   );
 }
@@ -245,11 +252,7 @@ function RpmBar({
       </div>
       <div className="relative h-2.5 overflow-hidden rounded-full bg-surface-secondary">
         <div
-          className={
-            overRedline
-              ? "h-full animate-pulse rounded-full"
-              : "h-full rounded-full"
-          }
+          className={overRedline ? "h-full animate-pulse rounded-full" : "h-full rounded-full"}
           style={{
             width: `${pct * 100}%`,
             background: overRedline ? "var(--danger)" : "var(--accent)",
