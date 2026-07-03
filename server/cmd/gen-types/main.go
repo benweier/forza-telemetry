@@ -66,7 +66,10 @@ func generate(path string, w io.Writer) error {
 				if !ok {
 					continue
 				}
-				tickFields = collectTickFields(st)
+				tickFields, err = collectTickFields(st)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -137,24 +140,35 @@ type tickField struct {
 	Section  string
 }
 
-func collectTickFields(st *ast.StructType) []tickField {
+// collectTickFields walks Tick's fields. A field the generator cannot emit is
+// a hard error, not a skip — silently dropping a field from the TS interface
+// (with exit code 0) is exactly the drift this tool exists to prevent. Opt a
+// field out of the wire format explicitly with `msgpack:"-"`.
+func collectTickFields(st *ast.StructType) ([]tickField, error) {
 	var out []tickField
 	section := ""
 	for _, field := range st.Fields.List {
 		if h := sectionFromDoc(field.Doc); h != "" {
 			section = h
 		}
+		fieldName := "(embedded)"
+		if len(field.Names) > 0 {
+			fieldName = field.Names[0].Name
+		}
 		if field.Tag == nil {
-			continue
+			return nil, fmt.Errorf("Tick field %s has no struct tag — add a msgpack tag (or msgpack:\"-\" to exclude)", fieldName)
 		}
 		raw := strings.Trim(field.Tag.Value, "`")
 		wire := reflect.StructTag(raw).Get("msgpack")
-		if wire == "" || wire == "-" {
+		if wire == "-" {
 			continue
+		}
+		if wire == "" {
+			return nil, fmt.Errorf("Tick field %s has no msgpack tag — add one (or msgpack:\"-\" to exclude)", fieldName)
 		}
 		tsType := goTypeToTS(field.Type)
 		if tsType == "" {
-			continue
+			return nil, fmt.Errorf("Tick field %s has type with no TS mapping — extend goTypeToTS in cmd/gen-types", fieldName)
 		}
 		for _, n := range field.Names {
 			out = append(out, tickField{
@@ -166,7 +180,7 @@ func collectTickFields(st *ast.StructType) []tickField {
 			section = ""
 		}
 	}
-	return out
+	return out, nil
 }
 
 // sectionFromDoc extracts a section heading from a comment group shaped like

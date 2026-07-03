@@ -37,8 +37,8 @@ type Tick struct {
 	// --- Per-wheel ---
 	TireTemp [4]float32 ` + "`msgpack:\"tt\"`" + `
 
-	// Field without msgpack tag is skipped.
-	Internal string ` + "`parquet:\"internal\"`" + `
+	// Explicitly excluded — the only sanctioned way to keep a field off the wire.
+	Internal string ` + "`msgpack:\"-\" parquet:\"internal\"`" + `
 
 	// Explicit skip.
 	Skipped float32 ` + "`msgpack:\"-\"`" + `
@@ -83,7 +83,7 @@ func TestGenerate(t *testing.T) {
 	}
 
 	unwants := []string{
-		"Internal",  // no msgpack tag
+		"Internal",  // msgpack:"-"
 		"Skipped",   // msgpack:"-"
 		"internal:", // parquet tag should not leak
 	}
@@ -91,6 +91,35 @@ func TestGenerate(t *testing.T) {
 		if strings.Contains(out, w) {
 			t.Errorf("output contains unexpected %q\n---\n%s", w, out)
 		}
+	}
+}
+
+// A field the generator can't emit must be a hard error, never a silent skip —
+// exit 0 with a missing TS field is exactly the drift gen-types exists to stop.
+func TestGenerateRejectsUnemittableFields(t *testing.T) {
+	cases := map[string]struct {
+		field   string
+		wantErr string
+	}{
+		"missing msgpack tag": {"Internal string `parquet:\"internal\"`", "no msgpack tag"},
+		"missing tag entirely": {"Internal string", "no struct tag"},
+		"unmapped type":        {"Weird [2]float32 `msgpack:\"wd\"`", "no TS mapping"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := strings.Replace(fixture,
+				"// Explicitly excluded — the only sanctioned way to keep a field off the wire.\n\tInternal string `msgpack:\"-\" parquet:\"internal\"`",
+				tc.field, 1)
+			path := filepath.Join(t.TempDir(), "tick.go")
+			if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var buf bytes.Buffer
+			err := generate(path, &buf)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
 	}
 }
 
