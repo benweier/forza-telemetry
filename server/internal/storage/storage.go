@@ -53,6 +53,13 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("drop legacy tables: %w", err)
 	}
+	// Recover stints left open by a crash BEFORE the polluted-stint sweep —
+	// recovery finalizes their rows from the durable Parquet segments; only
+	// what recovery can't salvage falls through to the sweep.
+	if err := recoverCrashedStints(db, store.logger); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("recover crashed stints: %w", err)
+	}
 	// Drop any polluted stints (idle / no-car) persisted by an older build.
 	// Idempotent and runs before any Writer opens — the DuckDB single-writer
 	// lock means nothing else can be mutating stints here.
@@ -75,9 +82,12 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 	return store, nil
 }
 
-// HotPath returns the absolute Parquet path for a hot Stint.
-func (s *Store) HotPath(sessionID, stintID string) string {
-	return filepath.Join(s.dataDir, "parquet", "hot", sessionID, stintID+".parquet")
+// HotDir returns the directory holding a hot Stint's Parquet segment files.
+// stints.parquet_path stores the `<dir>/*.parquet` glob over it (ADR 0011);
+// databases from pre-rotation builds still hold single-file paths, which every
+// consumer (read_parquet, removeParquet) handles transparently.
+func (s *Store) HotDir(sessionID, stintID string) string {
+	return filepath.Join(s.dataDir, "parquet", "hot", sessionID, stintID)
 }
 
 // ColdPath returns the absolute Parquet path for a downsampled (cold) Stint.
@@ -103,13 +113,23 @@ func (s *Store) NewWriter(now time.Time) (*Writer, error) {
 		sessionID:    sessionID,
 		logger:       s.logger.With("session", sessionID),
 		gapThreshold: 10 * time.Second,
-		minDuration:  2 * time.Second,
-		// At ~60Hz, 180 ticks ≈ 3s of actual samples — a floor on data density
-		// independent of wall-clock duration (a stint can span 2s+ but arrive
-		// thin if packets dropped). Raise later as real captures inform it.
-		minTicks: 180,
+		minDuration:  minStintDuration,
+		minTicks:     minStintTicks,
+		rotateEvery:  segmentRotateEvery,
 	}, nil
 }
+
+// Stint persistence thresholds — shared by the Writer's close-time discard and
+// startup crash recovery (recover.go), which must apply identical rules.
+const (
+	minStintDuration = 2 * time.Second
+	// At ~60Hz, 180 ticks ≈ 3s of actual samples — a floor on data density
+	// independent of wall-clock duration (a stint can span 2s+ but arrive
+	// thin if packets dropped). Raise later as real captures inform it.
+	minStintTicks = 180
+	// segmentRotateEvery bounds crash loss to one segment (ADR 0011).
+	segmentRotateEvery = 5 * time.Minute
+)
 
 // Close releases the DuckDB handle. Pending Writers must be closed first.
 func (s *Store) Close(_ context.Context) error {

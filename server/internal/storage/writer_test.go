@@ -5,6 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -224,10 +226,61 @@ func TestWriterShortStintDiscarded(t *testing.T) {
 	if n != 0 {
 		t.Errorf("short stint must be discarded, got %d rows", n)
 	}
-	// Parquet file should be removed too.
-	path := store.HotPath(writer.sessionID, "0001")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("short-stint parquet should be removed, stat err: %v", err)
+	// Parquet segments and their directory should be removed too.
+	dir := store.HotDir(writer.sessionID, "0001")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("short-stint parquet dir should be removed, stat err: %v", err)
+	}
+}
+
+// Rotation (ADR 0011): the writer must close a durable segment every
+// rotateEvery of tick time and continue in a fresh one, with the stored glob
+// covering all of them.
+func TestWriterRotatesSegments(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+	writer.rotateEvery = time.Second
+
+	// 10 race ticks over 4.5s at 500ms spacing → rotations at the 1s marks.
+	base := int64(0)
+	for i := 0; i < 10; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{
+			isRaceOn:        true,
+			currentRaceTime: 10,
+			carOrdinal:      100,
+		}))
+	}
+
+	waitForStints(t, store, writer.sessionID, 1)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	stints := readStints(t, store, writer.sessionID)
+	if len(stints) != 1 {
+		t.Fatalf("rotation must not split the stint: want 1 stint, got %d", len(stints))
+	}
+	if stints[0].tickCount != 10 {
+		t.Errorf("tick_count want 10 got %d", stints[0].tickCount)
+	}
+	segs, err := filepath.Glob(stints[0].path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segs) < 3 {
+		t.Errorf("want >=3 rotated segments, got %d (%v)", len(segs), segs)
+	}
+	// Every segment must be individually complete (readable footer), and the
+	// glob must cover every tick exactly once.
+	var total int64
+	for _, seg := range segs {
+		total += singleParquetRowCount(t, seg)
+	}
+	if total != 10 {
+		t.Errorf("rows across segments want 10 got %d", total)
 	}
 }
 
@@ -502,7 +555,29 @@ func readStints(t *testing.T, store *Store, sessionID string) []stintRow {
 	return out
 }
 
+// parquetRowCount sums rows across a stint's segment glob (or a single file
+// for legacy paths).
 func parquetRowCount(t *testing.T, path string) int64 {
+	t.Helper()
+	files := []string{path}
+	if strings.Contains(path, "*") {
+		matches, err := filepath.Glob(path)
+		if err != nil {
+			t.Fatalf("glob %s: %v", path, err)
+		}
+		if len(matches) == 0 {
+			t.Fatalf("glob %s matched no segments", path)
+		}
+		files = matches
+	}
+	var total int64
+	for _, p := range files {
+		total += singleParquetRowCount(t, p)
+	}
+	return total
+}
+
+func singleParquetRowCount(t *testing.T, path string) int64 {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {

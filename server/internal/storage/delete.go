@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ErrNotFound / ErrActive are sentinel errors the API layer maps to 404 / 409.
@@ -116,18 +117,46 @@ func (s *Store) DeleteSession(sessionID string) error {
 	}
 	// Best-effort: drop the now-empty per-session Parquet directory.
 	if len(victims) > 0 && victims[0].path != "" {
-		_ = os.Remove(filepath.Dir(victims[0].path))
+		_ = os.Remove(stintParentDir(victims[0].path))
 	}
 	return nil
 }
 
-// removeParquet deletes a stint's Parquet file best-effort — a missing file
+// removeParquet deletes a stint's Parquet data best-effort — a missing file
 // (already cleaned, or a stint that crashed before writing) is not an error.
+// Handles both layouts: a segment glob (ADR 0011 — every match plus the
+// segment directory) and a legacy single-file path.
 func removeParquet(logger *slog.Logger, stintID, path string) {
 	if path == "" {
 		return
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		logger.Warn("remove stint parquet", "stint", stintID, "path", path, "err", err)
+	if !strings.Contains(path, "*") {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.Warn("remove stint parquet", "stint", stintID, "path", path, "err", err)
+		}
+		return
 	}
+	matches, err := filepath.Glob(path)
+	if err != nil {
+		logger.Warn("glob stint parquet", "stint", stintID, "path", path, "err", err)
+		return
+	}
+	for _, m := range matches {
+		if err := os.Remove(m); err != nil && !os.IsNotExist(err) {
+			logger.Warn("remove stint parquet segment", "stint", stintID, "path", m, "err", err)
+		}
+	}
+	// The now-empty segment directory; non-empty/missing is fine.
+	_ = os.Remove(filepath.Dir(path))
+}
+
+// stintParentDir returns the per-session directory that holds a stint's
+// parquet data: the parent of the segment dir for glob paths, the file's dir
+// for legacy single-file paths.
+func stintParentDir(path string) string {
+	dir := filepath.Dir(path)
+	if strings.Contains(path, "*") {
+		dir = filepath.Dir(dir)
+	}
+	return dir
 }

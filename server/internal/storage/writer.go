@@ -31,19 +31,31 @@ type Writer struct {
 	gapThreshold time.Duration
 	minDuration  time.Duration
 	minTicks     int64
+	// rotateEvery bounds crash loss: the current Parquet segment is closed
+	// (footer + fsync — durable) and a new one opened whenever the segment
+	// spans this much tick time. A crash costs at most the open segment
+	// (ADR 0011). Zero disables rotation.
+	rotateEvery time.Duration
 
 	cur *stintState
 }
 
 type stintState struct {
-	id            string
-	ordinal       int
-	path          string
-	file          *os.File
-	pq            *parquet.GenericWriter[parquetRow]
-	tickCount     int64
-	startedAtNS   int64
-	lastTickNS    int64
+	id      string
+	ordinal int
+	// dir holds the stint's Parquet segment files (0001.parquet, …); path is
+	// the glob over them, stored in stints.parquet_path — DuckDB read_parquet
+	// accepts the glob directly, so readers never care about segmentation.
+	dir         string
+	path        string
+	seg         int
+	segStartNS  int64
+	file        *os.File
+	pq          *parquet.GenericWriter[parquetRow]
+	tickCount   int64
+	startedAtNS int64
+	lastTickNS  int64
+
 	firstGameTSMS uint32
 	lastGameTSMS  uint32
 	carOrdinal    int32
@@ -138,21 +150,15 @@ func (w *Writer) openStint(t *tick.Tick) error {
 		return err
 	}
 	id := fmt.Sprintf("%04d", ordinal)
-	path := w.store.HotPath(w.sessionID, id)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := w.store.HotDir(w.sessionID, id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir stint dir: %w", err)
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("create parquet file: %w", err)
-	}
-	pq := parquet.NewGenericWriter[parquetRow](f)
 	w.cur = &stintState{
 		id:            id,
 		ordinal:       ordinal,
-		path:          path,
-		file:          f,
-		pq:            pq,
+		dir:           dir,
+		path:          filepath.Join(dir, "*.parquet"),
 		startedAtNS:   t.ServerRecvNS,
 		lastTickNS:    t.ServerRecvNS,
 		firstGameTSMS: t.GameTSMillis,
@@ -164,14 +170,57 @@ func (w *Writer) openStint(t *tick.Tick) error {
 		lapMin:        t.LapNumber,
 		lapMax:        t.LapNumber,
 	}
+	if err := w.openSegment(t.ServerRecvNS); err != nil {
+		return err
+	}
 	if _, err := w.store.db.Exec(
 		`INSERT INTO stints (id, session_id, ordinal, started_at_ns, parquet_path)
 		 VALUES (?, ?, ?, ?, ?)`,
-		w.stintRowID(), w.sessionID, ordinal, t.ServerRecvNS, path,
+		w.stintRowID(), w.sessionID, ordinal, t.ServerRecvNS, w.cur.path,
 	); err != nil {
 		return fmt.Errorf("insert stint: %w", err)
 	}
 	return w.appendTick(t)
+}
+
+// openSegment starts the stint's next Parquet segment file.
+func (w *Writer) openSegment(nowNS int64) error {
+	cur := w.cur
+	cur.seg++
+	f, err := os.Create(filepath.Join(cur.dir, fmt.Sprintf("%04d.parquet", cur.seg)))
+	if err != nil {
+		return fmt.Errorf("create parquet segment: %w", err)
+	}
+	cur.file = f
+	cur.pq = parquet.NewGenericWriter[parquetRow](f)
+	cur.segStartNS = nowNS
+	return nil
+}
+
+// closeSegment finalizes the current segment: footer, fsync, close. Once this
+// returns nil the segment is durable — a later crash cannot lose it.
+func closeSegment(cur *stintState) error {
+	closeErr := cur.pq.Close()
+	if syncErr := cur.file.Sync(); closeErr == nil {
+		closeErr = syncErr
+	}
+	if cerr := cur.file.Close(); closeErr == nil {
+		closeErr = cerr
+	}
+	return closeErr
+}
+
+// rotateSegment makes everything written so far crash-durable and continues
+// the stint in a fresh segment (ADR 0011).
+func (w *Writer) rotateSegment(nowNS int64) error {
+	if err := closeSegment(w.cur); err != nil {
+		return fmt.Errorf("close segment on rotate: %w", err)
+	}
+	if err := w.openSegment(nowNS); err != nil {
+		return err
+	}
+	w.logger.Debug("rotated parquet segment", "stint", w.cur.id, "segment", w.cur.seg)
+	return nil
 }
 
 func (w *Writer) appendTick(t *tick.Tick) error {
@@ -196,6 +245,11 @@ func (w *Writer) appendTick(t *tick.Tick) error {
 		w.cur.carClass = t.CarClass
 		w.cur.carPI = t.CarPerformanceIndex
 	}
+	if w.rotateEvery > 0 && t.ServerRecvNS-w.cur.segStartNS >= w.rotateEvery.Nanoseconds() {
+		if err := w.rotateSegment(t.ServerRecvNS); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -206,13 +260,7 @@ func (w *Writer) closeStint(reason string) error {
 	cur := w.cur
 	w.cur = nil
 
-	closeErr := cur.pq.Close()
-	if syncErr := cur.file.Sync(); closeErr == nil {
-		closeErr = syncErr
-	}
-	if cerr := cur.file.Close(); closeErr == nil {
-		closeErr = cerr
-	}
+	closeErr := closeSegment(cur)
 
 	duration := time.Duration(cur.lastTickNS - cur.startedAtNS)
 	stintType := resolveStintType(cur.category, cur.lapMax-cur.lapMin)
@@ -276,9 +324,7 @@ func (w *Writer) discardStint(cur *stintState, duration time.Duration, cause str
 	); err != nil {
 		return fmt.Errorf("delete short stint row: %w", err)
 	}
-	if err := os.Remove(cur.path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove short stint parquet: %w", err)
-	}
+	removeParquet(w.logger, cur.id, cur.path)
 	w.logger.Info("stint discarded",
 		"stint", cur.id,
 		"cause", cause,

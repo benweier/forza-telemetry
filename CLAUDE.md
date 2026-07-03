@@ -47,7 +47,7 @@ Forza UDP → ingest.Listener → parser (FH5 Sled/Dash, FH6 Dash)
          → tick.Enrich (compute derived fields)
          → stream.Broker (in-memory ring + fan-out)
          ├→ api.ws (WebSocket; msgpack tick frames)
-         └→ storage.Writer (per-stint Parquet + DuckDB metadata)
+         └→ storage.Writer (per-stint segmented Parquet + DuckDB metadata; 5-min rotation bounds crash loss, ADR 0011)
                     │
                     ├→ stint detector (gap/type/car splits; discards sub-2s / <180-tick / idle / no-car stints)
                     └→ aggregator (per-stint/lap summary + 1Hz preview)

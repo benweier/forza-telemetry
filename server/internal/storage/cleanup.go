@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"os"
 )
 
 // pollutedStintCond selects stints with no analysable telemetry: idle ones
@@ -94,13 +93,9 @@ func sweepPollutedStints(db *sql.DB, logger *slog.Logger) error {
 
 	// Parquet removal is best-effort: a missing file (already-cleaned, or a
 	// stint that crashed before writing) must not fail the sweep.
+	// removeParquet handles both segment globs (ADR 0011) and legacy files.
 	for _, v := range victims {
-		if v.parquetPath == "" {
-			continue
-		}
-		if err := os.Remove(v.parquetPath); err != nil && !os.IsNotExist(err) {
-			logger.Warn("remove polluted stint parquet", "stint", v.id, "path", v.parquetPath, "err", err)
-		}
+		removeParquet(logger, v.id, v.parquetPath)
 	}
 
 	logger.Info("swept polluted stints", "count", len(victims))
