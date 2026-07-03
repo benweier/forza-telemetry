@@ -12,21 +12,22 @@ import (
 	"github.com/benweier/forza-telemetry/server/internal/tick"
 )
 
-// Envelope frames every outbound message on the WebSocket. Control messages are
-// JSON-encoded; telemetry frames are MessagePack (ADR 0004).
+// Envelope frames every outbound message on the WebSocket — HELLO included,
+// everything is MessagePack (ADR 0004; an earlier draft said JSON for control
+// frames, but nothing ever shipped that way).
 type envelopeKind uint8
 
 const (
 	envHello     envelopeKind = 1
 	envTickFrame envelopeKind = 2
-	envError     envelopeKind = 3
 )
 
 type helloMsg struct {
 	Kind       envelopeKind `msgpack:"k"`
 	ServerTime int64        `msgpack:"st"`
-	RingReplay int          `msgpack:"rr"`
-	ProtoVer   int          `msgpack:"pv"`
+	// RingReplay is how many buffered ticks precede live frames on this socket.
+	RingReplay int `msgpack:"rr"`
+	ProtoVer   int `msgpack:"pv"`
 }
 
 type tickFrame struct {
@@ -60,6 +61,7 @@ func (s *Server) handleLiveWS(w http.ResponseWriter, r *http.Request) {
 	hello := helloMsg{
 		Kind:       envHello,
 		ServerTime: time.Now().UnixNano(),
+		RingReplay: len(sub.C()),
 		ProtoVer:   1,
 	}
 	if err := writeMsgpack(ctx, conn, hello); err != nil {

@@ -28,15 +28,22 @@ func (s *Server) handleListPath(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var parquetPath string
+	var endedAt nullableInt64
 	err := s.store.DB().QueryRow(
-		`SELECT parquet_path FROM stints WHERE id = ?`, id,
-	).Scan(&parquetPath)
+		`SELECT parquet_path, ended_at_ns FROM stints WHERE id = ?`, id,
+	).Scan(&parquetPath, &endedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "stint not found")
 		return
 	}
 	if err != nil {
 		s.internalError(w, "list_path lookup", err)
+		return
+	}
+	// The parquet footer is only written at stint close — read_parquet on the
+	// actively-recording stint fails, which used to surface as a 500.
+	if !endedAt.Valid {
+		writeError(w, http.StatusConflict, "stint is still recording")
 		return
 	}
 

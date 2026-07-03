@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -316,5 +317,46 @@ func TestRESTDeleteMissing(t *testing.T) {
 	}
 	if code := doMethod(t, s, http.MethodDelete, "/api/v1/stints/nope"); code != 404 {
 		t.Errorf("delete missing stint: want 404 got %d", code)
+	}
+}
+
+// The parquet footer only exists after stint close — tick/path reads on the
+// actively-recording stint used to 500; they must 409 like the deletes.
+func TestRESTTicksAndPathOnRecordingStint(t *testing.T) {
+	s := newTestServer(t)
+	db := s.store.DB()
+	mustExec(t, db, `INSERT INTO sessions (id, started_at_ns) VALUES (?, ?)`,
+		"REC_SESSION", int64(1_000_000_000))
+	mustExec(t, db, `INSERT INTO stints (id, session_id, ordinal, started_at_ns, parquet_path)
+	                 VALUES (?, ?, 1, ?, ?)`,
+		"REC_SESSION_0001", "REC_SESSION", int64(1_000_000_000), "/tmp/recording.parquet")
+
+	if code, _ := doRequest(t, s, "/api/v1/stints/REC_SESSION_0001/ticks"); code != 409 {
+		t.Errorf("ticks on recording stint: want 409 got %d", code)
+	}
+	if code, _ := doRequest(t, s, "/api/v1/stints/REC_SESSION_0001/path"); code != 409 {
+		t.Errorf("path on recording stint: want 409 got %d", code)
+	}
+}
+
+// A `from` with no `to` must default to from+60s (docs/api.md), not
+// stint_start+60s — the old anchoring rejected any from > start+60s.
+func TestParseWindowDefaultToFollowsFrom(t *testing.T) {
+	const sec = int64(1_000_000_000)
+	end := nullableInt64{Value: 300 * sec, Valid: true}
+	req := httptest.NewRequest(http.MethodGet, "/?from="+strconv.FormatInt(70*sec, 10), nil)
+
+	from, to, err := parseWindow(req, 0, end)
+	if err != nil {
+		t.Fatalf("parseWindow: %v", err)
+	}
+	if from != 70*sec || to != 130*sec {
+		t.Errorf("want [70s,130s], got [%d,%d]", from, to)
+	}
+
+	// Default `to` still clamps to the stint end.
+	req = httptest.NewRequest(http.MethodGet, "/?from="+strconv.FormatInt(290*sec, 10), nil)
+	if _, to, err = parseWindow(req, 0, end); err != nil || to != 300*sec {
+		t.Errorf("want clamp to 300s, got to=%d err=%v", to, err)
 	}
 }

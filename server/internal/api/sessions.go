@@ -151,7 +151,7 @@ func (s *Server) handleDownsampleSession(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusNotImplemented, map[string]string{
 		"error": "downsample action not yet implemented",
-		"note":  "the endpoint shape is stable; backend job lands in handoff #9",
+		"note":  "the endpoint shape is stable; the Parquet rewrite job is not built yet",
 	})
 }
 

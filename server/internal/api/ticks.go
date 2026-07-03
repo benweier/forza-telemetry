@@ -69,6 +69,13 @@ func (s *Server) handleListTicks(w http.ResponseWriter, r *http.Request) {
 	}
 	stintStart.Valid = true
 
+	// The parquet footer is only written at stint close — read_parquet on the
+	// actively-recording stint fails, which used to surface as a 500.
+	if !stintEnd.Valid {
+		writeError(w, http.StatusConflict, "stint is still recording")
+		return
+	}
+
 	from, to, err := parseWindow(r, stintStart.Value, stintEnd)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -120,20 +127,23 @@ func (s *Server) handleListTicks(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseWindow resolves the from/to query params against the stint's range.
-// Missing params default to the stint start / start+maxTickWindow.
+// `from` defaults to the stint start; `to` defaults to from+maxTickWindow
+// (clamped to the stint end), matching docs/api.md — the default used to be
+// anchored to the stint start regardless of `from`, so `?from=<start+70s>`
+// with no `to` was rejected with "to must be > from".
 func parseWindow(r *http.Request, stintStartNS int64, stintEndNS nullableInt64) (int64, int64, error) {
 	q := r.URL.Query()
 	from := stintStartNS
-	to := stintStartNS + maxTickWindow.Nanoseconds()
-	if stintEndNS.Valid && to > stintEndNS.Value {
-		to = stintEndNS.Value
-	}
 	if v := q.Get("from"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return 0, 0, fmt.Errorf("bad from: %v", err)
 		}
 		from = n
+	}
+	to := from + maxTickWindow.Nanoseconds()
+	if stintEndNS.Valid && to > stintEndNS.Value {
+		to = stintEndNS.Value
 	}
 	if v := q.Get("to"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
