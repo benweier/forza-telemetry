@@ -167,3 +167,41 @@ func TestSweepEmptySessions(t *testing.T) {
 		t.Fatalf("second sweep: %v", err)
 	}
 }
+
+// A crash means Writer.shutdown never stamped ended_at_ns — the session read
+// as "recording" forever and was undeletable. Startup must backfill it from
+// its last closed stint, and must not touch the genuinely-active NULL row.
+func TestBackfillCrashedSessions(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.db.Exec(
+		`INSERT INTO sessions (id, started_at_ns) VALUES ('crashed', 0), ('nostints', 0)`,
+	); err != nil {
+		t.Fatalf("insert sessions: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO stints (id, session_id, ordinal, started_at_ns, ended_at_ns, parquet_path)
+		 VALUES ('crashed_0001', 'crashed', 1, 0, 42, '/tmp/x.parquet'),
+		        ('crashed_0002', 'crashed', 2, 50, NULL, '/tmp/y.parquet')`,
+	); err != nil {
+		t.Fatalf("insert stints: %v", err)
+	}
+
+	if err := backfillCrashedSessions(s.db, s.logger); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	var ended *int64
+	if err := s.db.QueryRow(`SELECT ended_at_ns FROM sessions WHERE id = 'crashed'`).Scan(&ended); err != nil {
+		t.Fatalf("scan crashed: %v", err)
+	}
+	if ended == nil || *ended != 42 {
+		t.Errorf("crashed session: want ended_at_ns=42, got %v", ended)
+	}
+	// A session with no closed stints has nothing to backfill from — left alone.
+	if err := s.db.QueryRow(`SELECT ended_at_ns FROM sessions WHERE id = 'nostints'`).Scan(&ended); err != nil {
+		t.Fatalf("scan nostints: %v", err)
+	}
+	if ended != nil {
+		t.Errorf("nostints session: want NULL ended_at_ns, got %v", *ended)
+	}
+}

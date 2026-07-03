@@ -80,7 +80,10 @@ func serve(args []string) error {
 	if err != nil {
 		return fmt.Errorf("create writer: %w", err)
 	}
-	writerSub := broker.Subscribe(false)
+	// The writer is a durability consumer: give it a ring-sized buffer so a
+	// multi-second stall (stint-close aggregation) can't overflow it and
+	// silently punch a hole in the raw capture.
+	writerSub := broker.SubscribeBuffered(cfg.Stream.RingSize, false)
 
 	listener, err := ingest.NewListener(cfg.Ingest, broker, logger)
 	if err != nil {
@@ -101,20 +104,30 @@ func serve(args []string) error {
 		"session", writer.SessionID(),
 	)
 
+	received := 0
+	var firstErr error
 	select {
 	case <-ctx.Done():
 		logger.Info("shutdown signal received")
 	case err := <-errCh:
-		if err != nil {
-			cancel()
-			return err
+		received++
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("component failed, shutting down", "err", err)
+			firstErr = err
 		}
 	}
+	cancel()
 
-	for i := 0; i < 3; i++ {
+	// Drain ALL goroutines before returning — on the error path too. The
+	// writer only finalizes the active stint's parquet footer when Run
+	// returns; bailing early here used to lose the in-flight stint.
+	for ; received < 3; received++ {
 		if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("shutdown error", "err", err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
-	return nil
+	return firstErr
 }

@@ -54,11 +54,22 @@ type stintState struct {
 	lapMax        uint16
 }
 
+// maxConsecutiveFailures is how many back-to-back tick-handling errors the
+// writer rides out (closing the broken stint and starting fresh each time)
+// before concluding persistence is truly broken and shutting the server down.
+const maxConsecutiveFailures = 10
+
 // Run consumes ticks from sub until ctx is cancelled or the channel closes.
 // The active Stint (if any) is flushed before return.
+//
+// A single failed write no longer kills the process: the broken stint is
+// closed best-effort and the next tick opens a fresh one. Only sustained
+// failure (disk full, DB gone) propagates out.
 func (w *Writer) Run(ctx context.Context, sub *stream.Subscription) error {
 	defer w.shutdown()
 
+	var failures int
+	var lastDropped uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,10 +78,25 @@ func (w *Writer) Run(ctx context.Context, sub *stream.Subscription) error {
 			if !ok {
 				return nil
 			}
-			if err := w.handle(t); err != nil {
-				w.logger.Error("writer handle tick", "err", err)
-				return err
+			// A drop on this subscription is a permanent gap in the raw
+			// capture — the one thing this tool exists to prevent. Say so.
+			if d := sub.Dropped(); d != lastDropped {
+				w.logger.Error("storage subscriber dropped ticks — raw capture has a gap",
+					"dropped_delta", d-lastDropped, "dropped_total", d)
+				lastDropped = d
 			}
+			if err := w.handle(t); err != nil {
+				failures++
+				w.logger.Error("writer handle tick", "err", err, "consecutive_failures", failures)
+				if cerr := w.closeStint("error"); cerr != nil {
+					w.logger.Error("close stint after handle error", "err", cerr)
+				}
+				if failures >= maxConsecutiveFailures {
+					return err
+				}
+				continue
+			}
+			failures = 0
 		}
 	}
 }

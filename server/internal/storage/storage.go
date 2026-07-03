@@ -66,6 +66,12 @@ func New(dataDir string, logger *slog.Logger) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("sweep empty sessions: %w", err)
 	}
+	// Finally, close out sessions orphaned by a crash so they stop reading as
+	// "recording" and become deletable again.
+	if err := backfillCrashedSessions(db, store.logger); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("backfill crashed sessions: %w", err)
+	}
 	return store, nil
 }
 

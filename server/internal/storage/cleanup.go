@@ -107,6 +107,34 @@ func sweepPollutedStints(db *sql.DB, logger *slog.Logger) error {
 	return nil
 }
 
+// backfillCrashedSessions closes out sessions orphaned by a crash: their
+// Writer.shutdown never ran, so ended_at_ns stayed NULL and the session read
+// as "recording" forever — which also made it permanently undeletable
+// (DeleteSession 409s on active sessions). Stamp them with their last stint's
+// end. Runs after the sweeps and before NewWriter, so any NULL here is a
+// genuine orphan, never the about-to-start session. Idempotent.
+func backfillCrashedSessions(db *sql.DB, logger *slog.Logger) error {
+	res, err := db.Exec(
+		`UPDATE sessions
+		 SET ended_at_ns = (
+		   SELECT MAX(stints.ended_at_ns) FROM stints
+		   WHERE stints.session_id = sessions.id AND stints.ended_at_ns IS NOT NULL
+		 )
+		 WHERE ended_at_ns IS NULL
+		   AND EXISTS (
+		     SELECT 1 FROM stints
+		     WHERE stints.session_id = sessions.id AND stints.ended_at_ns IS NOT NULL
+		   )`,
+	)
+	if err != nil {
+		return fmt.Errorf("backfill crashed sessions: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		logger.Info("backfilled crashed sessions", "count", n)
+	}
+	return nil
+}
+
 // sweepEmptySessions deletes session rows that have no stints. Run at startup
 // after sweepPollutedStints and before NewWriter creates the active session,
 // so any zero-stint session here is genuinely abandoned — it only ever held
