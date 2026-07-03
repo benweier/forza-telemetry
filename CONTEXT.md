@@ -5,7 +5,7 @@ Ingests, stores, and visualizes the UDP "Data Out" telemetry stream from Forza H
 ## Language
 
 **Session**:
-The outer container for one continuous arrival of Data Out packets — typically the lifetime of a single game launch.
+The outer container for capture. **As implemented**: one run of the `forza-telemetry serve` process — the row is created at server start and closed at shutdown. The original intent ("one continuous arrival of Data Out packets, typically a game launch") is not what the code does: a server left running across two game launches records one Session, and gap-based session splitting does not exist. If a data-driven boundary is ever wanted, that is a deliberate model change, not a bug fix.
 _Avoid_: Run, capture, recording.
 
 **Stint**:
@@ -13,7 +13,7 @@ A contiguous span of in-car driving inside a **Session**, bounded by: (a) a pack
 _Avoid_: Segment, drive, leg.
 
 **Lap**:
-A specialized **Stint** (or sub-span of one) that the game identifies as a timed lap within a structured race event. Not every **Stint** has **Laps** — free-roam **Stints** do not.
+A game-identified timed lap within a `circuit` **Stint** — a sub-range of that Stint's **Ticks**, never a kind of Stint itself. Materialized today only as a per-lap aggregate row (`lap_summary`: lap number, time, peaks); the underlying tick range is derivable by filtering the Stint's Ticks on `lap_number` but is not stored as a first-class range. Not every **Stint** has **Laps** — free-roam and sprint **Stints** do not.
 _Avoid_: Circuit, loop.
 
 **Tick**:
@@ -28,9 +28,9 @@ _Avoid_: Tick, frame, message.
 An automatically-assigned classification of a **Stint** based on telemetry-only heuristics. Initial values: `circuit` (lap-based race), `sprint` (timed event with no laps), `freeroam` (in-car driving with no active event), `idle` (paused/menu/loading). `idle` still drives Stint splitting (so race time never merges with menu time) but `idle` Stints are not persisted — only freeroam/sprint/circuit reach the DB.
 _Avoid_: Mode, category (those are for user-applied tags).
 
-**Tag**:
+**Tag** _(planned — not yet implemented)_:
 A user-applied label attached to a **Stint** (or possibly a **Session** or **Lap**) after capture, used to enrich what telemetry cannot tell us. Free-form by default (e.g. `"Goliath"`, `"PR Stunt - Speed Trap"`) with optional structured tag types reserved for future use (event name, event type, tuning notes, weather, surface, etc.).
-_Avoid_: Label, annotation (reserve "annotation" for hot-spot markers, TBD).
+_Avoid_: Label, annotation.
 
 **Car**:
 The vehicle being driven during a **Stint**, identified from telemetry by `CarOrdinal` (Forza's unique vehicle ID) plus `CarClass` and `CarPerformanceIndex`. Auto-derived; not user-tagged.
@@ -40,15 +40,15 @@ _Avoid_: Vehicle.
 A **Session** state that protects it from being downsampled, regardless of age. Set/unset by the user from the UI.
 _Avoid_: Locked, starred, favorited.
 
-**Downsampled**:
+**Downsampled** _(endpoint stubbed — flag + 501 exist, the Parquet rewrite job does not)_:
 A **Session** that has been irreversibly reduced from full-rate **Tick** capture to a lower rate (target rate TBD, e.g. 10 Hz) to reclaim space. The aggregates and 1 Hz preview series are preserved; only the raw **Tick** stream is reduced. Triggered by explicit user action; the UI may recommend it for unpinned **Sessions** older than 10 days but never performs it automatically.
 _Avoid_: Compressed, archived, decimated.
 
-**Bookmark**:
+**Bookmark** _(planned — not yet implemented)_:
 A user-marked moment placed on a single **Tick** during live or scrub playback, optionally with a free-form note. Distinct from a **Snapshot** (which is a durable capture).
 _Avoid_: Marker, flag, pin.
 
-**Snapshot**:
+**Snapshot** _(planned — not yet implemented; note ADR 0002's "Snapshots survive downsampling" durability story depends on this existing before downsampling ships)_:
 A durable capture of telemetry state at a chosen moment (one **Tick** or a small window around it), saved as a first-class record that survives **Downsampling** of its source **Session**. Can be created from a **Bookmark** or any arbitrary scrub position. Supports side-by-side comparison and export (PNG / JSON / CSV).
 _Avoid_: Capture, frame, freeze.
 
@@ -56,7 +56,7 @@ _Avoid_: Capture, frame, freeze.
 The spatial trajectory of a **Stint**, derived from each **Tick**'s `PositionX/Y/Z`. Rendered as a polyline in the mini-map view, optionally coloured by a per-**Tick** channel (speed, brake force, lateral G). Day-one renderer plots raw world coordinates with auto-fit bounds; a future enhancement may overlay onto Forza region map tiles.
 _Avoid_: Route, trace, line.
 
-**Comparison**:
+**Comparison** _(planned — not yet implemented; needs first-class Lap tick ranges that the schema doesn't have yet)_:
 A user-assembled set of 2-6 comparable units (**Laps** or **Snapshots**) rendered together: time-series channels overlaid on shared charts and **Track Paths** overlaid on the mini-map (ghost-car style, color-coded). Time-series x-axis is always **cumulative distance from entity start**, not elapsed time, to avoid misleading visual offsets when one entity is slower than another. Comparison across different **Cars** or different auto-classified tracks is permitted with a UI warning, never blocked.
 _Avoid_: Overlay, diff, vs-mode.
 

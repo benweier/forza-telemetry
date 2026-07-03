@@ -76,8 +76,22 @@ can wire its affordance. Real Parquet rewrite lands in a later pass.
 ```json
 {
   "error": "downsample action not yet implemented",
-  "note":  "the endpoint shape is stable; backend job lands in handoff #9"
+  "note":  "the endpoint shape is stable; the Parquet rewrite job is not built yet"
 }
+```
+
+### `DELETE /api/v1/sessions/{id}`
+Delete a session and everything beneath it (stints, child rows, Parquet
+files). `404` if no such session; `409` if the session is still recording:
+
+```json
+{ "error": "cannot delete a session that is still recording" }
+```
+
+Success returns `200`:
+
+```json
+{ "deleted": "20260524T170000Z" }
 ```
 
 ## Stints
@@ -138,24 +152,10 @@ Per-lap summaries.
 }
 ```
 
-### `GET /api/v1/stints/{id}/hot-spots`
-Auto-detected hot-spots (lateral G / brake / top speed peaks).
-
-```json
-{
-  "hot_spots": [
-    {
-      "id": "20260524T170000Z_0001_hs_0001",
-      "type": "peak_lateral_g",      // peak_lateral_g | peak_brake | top_speed
-      "started_at_ns": 1779609381100000000,
-      "ended_at_ns": 1779609381500000000,
-      "peak_tick_ns": 1779609381300000000,
-      "peak_value": 1.2,
-      "label": "1.2G lateral"
-    }
-  ]
-}
-```
+### `DELETE /api/v1/stints/{id}`
+Delete a single stint (child rows + Parquet file). `404` if no such stint;
+`409` (`{"error": "cannot delete a stint that is still recording"}`) if the
+stint is still recording. Success returns `200 {"deleted": "<id>"}`.
 
 ### `GET /api/v1/stints/{id}/preview`
 1Hz preview series for the scrub bar. One row per second of stint wall time.
@@ -173,6 +173,7 @@ Auto-detected hot-spots (lateral G / brake / top speed peaks).
       "brake_pct": 0.0,
       "rpm": 5500.0,
       "pos_x": 100.0,
+      "pos_y": 50.0,
       "pos_z": 200.0,
       "lap_number": 0
     }
@@ -193,6 +194,8 @@ Full-resolution tick series, column-oriented. Read directly from Parquet.
   issuing multiple requests with disjoint `from/to`.
 - `channels` must be a subset of the whitelist (`ticks.go tickChannels`).
   Unknown names return `400`.
+- The actively-recording stint returns `409` (`{"error": "stint is still
+  recording"}`) — its Parquet file has no footer until the stint closes.
 
 **Response:** column-oriented, optimal for chart libs that take parallel arrays.
 
@@ -210,16 +213,36 @@ Full-resolution tick series, column-oriented. Read directly from Parquet.
 
 `server_recv_ns` is always the first column.
 
+### `GET /api/v1/stints/{id}/path?step`
+Downsampled 3D track path for map rendering, column-oriented like `/ticks`
+with a fixed column set: `server_recv_ns, pos_x, pos_y, pos_z, speed_ms,
+lap_number, brake_pct, lateral_g`.
+
+**Query params:**
+- `step` (int, optional, default `6`, max `60`) — keep every Nth tick
+  (`step=6` ≈ 10 Hz at Forza's 60 Hz output).
+
+Returns `404` for an unknown stint, `409` while the stint is still recording.
+
+```json
+{
+  "columns": ["server_recv_ns", "pos_x", "pos_y", "pos_z", "speed_ms", "lap_number", "brake_pct", "lateral_g"],
+  "rows": [[1779609381100000000, 100.0, 50.0, 200.0, 25.0, 0, 0.0, 0.5]],
+  "step": 6,
+  "sample_hz": 10.0
+}
+```
+
 ## Live channel
 
 ### `GET /api/v1/live` (WebSocket)
 
-Bidirectional channel. Frames are MessagePack-encoded envelopes:
+Server → client only today. Every frame — HELLO included — is a
+MessagePack-encoded envelope:
 
-- Server → client `k=1` (HELLO) — JSON.
-- Server → client `k=2` (TICK) — MessagePack; payload is one Tick. Field
-  names are short tags (`gv`, `pv`, `gts`, `sp`, …) per
-  `client/src/types/tick.generated.ts`.
+- `k=1` (HELLO) — sent once on connect (protocol version).
+- `k=2` (TICK) — payload under `t` is one Tick. Field names are short tags
+  (`gv`, `pv`, `gts`, `sp`, …) per `client/src/types/tick.generated.ts`.
 
 See `types/tick.generated.ts` for the full Tick field set + enum values.
 

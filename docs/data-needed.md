@@ -73,8 +73,8 @@ or what new questions surfaced.
 ## Detector tuning (all in `server/internal/storage/`)
 
 ### Stint categorizer (`stint_type.go`)
-- **Hypothesis:** `CurrentRaceTime > 0` discriminates race vs free-roam.
-- **Needs:** real race entry/exit transition — confirm CurrentRaceTime jumps to non-zero at race start and back to zero at finish.
+- **Partially confirmed (2026-05-31):** `CurrentRaceTime` was nonzero in 716,321/716,338 race-on packets from the real circuit+sprint capture — the `> 0` race-vs-freeroam discriminator holds while a race is running.
+- **Still open:** the entry/exit *transitions* — confirm it jumps nonzero exactly at race start and returns to zero at finish (the capture shows steady-state, not the edges).
 - **Code dep:** drives every stint split + final `stint_type` label.
 - **Edge case to verify:** single transient tick of opposite category causes a split today (no hysteresis). Real captures may show flapping that warrants a debounce window.
 
@@ -83,14 +83,7 @@ or what new questions surfaced.
 ## Operations / capture pipeline
 
 ### FH6 capture log rotation
-- **Currently:** single append-only file at `<dataDir>/captures/fh6.log`. Growth ≈ 78 MB/hour at full ingest rate.
-- **Needs:** decision — daily rotation? Size-capped (e.g., 100 MB then rotate)? Drop capture once layout is fully verified?
-- **Code dep:** `parser/fh6.go logPacket()` writes via passed `io.Writer`. Listener opens the file in `NewListener`. A rotating writer (e.g., `lumberjack`) can be swapped in.
-
-### Multi-hour stints
-- **Memory pressure:** `stintState.pathSamples` at ~32B × 60Hz × 3600s ≈ 7 MB / hour. OK for short stints but unbounded.
-- **Needs:** check whether real free-roam sessions exceed an hour without category change. If so, decide on eviction or external-spill strategy.
-- **Code dep:** `writer.go` accumulates `pathSamples` only for race-category stints today, but the same memory bound applies.
+- **Resolved:** `lumberjack` rotation shipped (`listener.go` opens the capture log through a `lumberjack.Logger`); the file can no longer grow unbounded.
 
 ## Live HUD visualisation thresholds (client)
 

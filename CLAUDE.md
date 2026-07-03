@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-user, LAN-only telemetry tool for Forza Horizon (primarily FH6, with FH5 support). A Go server captures UDP Data Out, persists it as Parquet + DuckDB, serves REST + WebSocket, and embeds a TanStack Start SPA in the same binary. The frontend dashboard browses captured sessions/stints and renders live + historical analytics.
 
-`CONTEXT.md` is the canonical domain glossary — **read it before naming or modelling anything new** (Session, Stint, Lap, Tick, Packet, Stint Type, Hot-spot, Bookmark, Snapshot, Track Path, Comparison have precise definitions and "avoid" lists).
+`CONTEXT.md` is the canonical domain glossary — **read it before naming or modelling anything new** (Session, Stint, Lap, Tick, Packet, Stint Type, Bookmark, Snapshot, Track Path, Comparison have precise definitions and "avoid" lists; planned-but-unbuilt concepts are marked as such).
 
 ## Commands
 
@@ -26,7 +26,8 @@ just build
 # Tests
 cd server && CGO_ENABLED=1 go test ./...                          # all packages
 cd server && CGO_ENABLED=1 go test ./internal/storage/ -run TestX  # single test
-cd client && pnpm lint                                             # oxlint (no tests yet)
+cd client && pnpm vitest run                                       # unit tests (pure core: store selector, smoothers, MSDF layout, …)
+cd client && pnpm lint                                             # oxlint (errors fail the gate; warnings don't)
 
 # Lint + format
 cd server && go vet ./...                  # also runs as part of CI gate
@@ -48,8 +49,7 @@ Forza UDP → ingest.Listener → parser (FH5 Sled/Dash, FH6 Dash)
          ├→ api.ws (WebSocket; msgpack tick frames)
          └→ storage.Writer (per-stint Parquet + DuckDB metadata)
                     │
-                    ├→ stint detector (gap/type/car splits, sub-2s discard)
-                    ├→ hot-spot detector (lat_g, brake, top_speed)
+                    ├→ stint detector (gap/type/car splits; discards sub-2s / <180-tick / idle / no-car stints)
                     └→ aggregator (per-stint/lap summary + 1Hz preview)
 api.REST (sessions, stints, sub-resources, ticks) ← reads DuckDB + Parquet
 api.web (SPA embed)                              ← serves TanStack client _shell.html
