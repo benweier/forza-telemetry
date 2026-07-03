@@ -97,10 +97,10 @@ export function TickPreviewChart({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) return undefined;
 
     const norm = active ? fromDetail(active, startedAtNs) : fromPreview(samples, startedAtNs);
-    if (norm.x.length < 2) return;
+    if (norm.x.length < 2) return undefined;
 
     const data: uPlot.AlignedData = [norm.x, norm.speed, norm.lat, norm.brake];
 

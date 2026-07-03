@@ -59,6 +59,7 @@ function PreviewPane() {
           <span className="text-xs font-medium tracking-wider text-muted uppercase">WHEP URL</span>
           <input
             type="text"
+            aria-label="WHEP URL"
             value={whepUrl}
             onChange={(e) => setWhepUrl(e.target.value)}
             placeholder="http://192.168.1.10:8889/mystream/whep"
@@ -78,6 +79,7 @@ function PreviewPane() {
           </div>
           <input
             type="range"
+            aria-label="Sync offset in milliseconds"
             min={0}
             max={MAX_OFFSET_MS}
             step={10}

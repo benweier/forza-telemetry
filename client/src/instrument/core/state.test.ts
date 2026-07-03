@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
 import type { TickFrame } from "~/types/tick.generated";
+import { tickFixture } from "~/test/tick-fixture";
 import { targetsFromTick, buildInstrumentState } from "./state";
 
 const RAD = Math.PI / 180;
-const tick = (p: Partial<TickFrame>): TickFrame => p as unknown as TickFrame;
+const tick = (p: Partial<TickFrame>): TickFrame => tickFixture(p);
 
 test("speed converts m/s → km/h", () => {
   expect(targetsFromTick(tick({ sp: 50 }), 8000).speedKmh).toBeCloseTo(180, 1);

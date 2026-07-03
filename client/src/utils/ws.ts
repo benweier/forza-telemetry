@@ -40,37 +40,48 @@ export class LiveSocket {
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
 
-    ws.onopen = () => {
+    ws.addEventListener("open", () => {
       this.retryMS = 500;
       useLiveStore.getState().setConnected(true);
-    };
+    });
 
-    ws.onclose = () => {
+    ws.addEventListener("close", () => {
       useLiveStore.getState().setConnected(false);
       this.ws = null;
       if (this.stopped) return;
       setTimeout(() => this.connect(), this.retryMS);
       this.retryMS = Math.min(this.retryMS * 2, 10_000);
-    };
+    });
 
-    ws.onerror = () => {
+    ws.addEventListener("error", () => {
       ws.close();
-    };
+    });
 
-    ws.onmessage = (ev) => {
+    ws.addEventListener("message", (ev) => {
       if (!(ev.data instanceof ArrayBuffer)) return;
-      const decoded = unpackr.unpack(new Uint8Array(ev.data)) as Record<string, unknown>;
-      const kind = decoded["k"];
-      if (kind === ENV_TICK) {
-        const tick = decoded["t"] as TickFrame;
-        useLiveStore.getState().push(tick);
-      } else if (kind === ENV_HELLO) {
+      const decoded: unknown = unpackr.unpack(new Uint8Array(ev.data));
+      if (!isRecord(decoded)) return;
+      if (decoded["k"] === ENV_TICK) {
+        const tick = decoded["t"];
+        if (isTickFrame(tick)) useLiveStore.getState().push(tick);
+      } else if (decoded["k"] === ENV_HELLO) {
         // Future: react to server hello (protocol version, ring replay size).
       }
-    };
+    });
 
     this.ws = ws;
   }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+// Spot-check, not full validation: frames come from our own server, built from
+// the same generated schema (tick.generated.ts). This guards against envelope
+// shape drift — an old server or a foreign payload — not per-field drift.
+function isTickFrame(v: unknown): v is TickFrame {
+  return isRecord(v) && typeof v["sts"] === "number" && typeof v["gv"] === "number" && typeof v["sp"] === "number";
 }
 
 function wsUrl(path: string): string {

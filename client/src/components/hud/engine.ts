@@ -81,7 +81,7 @@ export class DynoEnvelope {
     const n = Math.ceil(capRpm / bucketRpm) + 1;
     this.maxPower = new Float64Array(n);
     this.maxTorque = new Float64Array(n);
-    this.seen = new Array(n).fill(false);
+    this.seen = Array.from({ length: n }, () => false);
   }
 
   reset(): void {

@@ -185,7 +185,7 @@ function buildScene(
   const cz = (minZ + maxZ) / 2;
   const extent = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
 
-  const segments: Segment[] = new Array(pts.length - 1);
+  const segments: Segment[] = Array.from({ length: pts.length - 1 });
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
     const b = pts[i];
@@ -234,10 +234,16 @@ function valueToColor(raw: number, max: number): [number, number, number, number
 
 // ---------- tooltip ----------
 
+// deck.gl types picked objects as `any`; the layer-id check already proves
+// provenance, this narrows the shape without an unchecked cast.
+function isSegment(v: unknown): v is Segment {
+  return typeof v === "object" && v !== null && "value" in v && "lap" in v;
+}
+
 function tooltipFor(info: PickingInfo, channel: PathChannel): string | null {
-  if (!info.object) return null;
   if (info.layer?.id !== "track-path") return null;
-  const seg = info.object as Segment;
+  if (!isSegment(info.object)) return null;
+  const seg = info.object;
   const cfg = channelConfig[channel];
   const channelDisplay = cfg.format(seg.value);
   const lap = seg.lap !== null ? `Lap ${seg.lap}` : "—";

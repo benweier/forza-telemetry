@@ -180,12 +180,12 @@ function SummaryStats({ summary }: { summary: StintSummary }) {
     {
       label: "Top speed",
       sub: "km/h",
-      value: summary.top_speed_ms !== null ? `${(summary.top_speed_ms * 3.6).toFixed(0)}` : null,
+      value: summary.top_speed_ms !== null ? (summary.top_speed_ms * 3.6).toFixed(0) : null,
     },
     {
       label: "Distance",
       sub: "km",
-      value: summary.distance_m !== null ? `${(summary.distance_m / 1000).toFixed(2)}` : null,
+      value: summary.distance_m !== null ? (summary.distance_m / 1000).toFixed(2) : null,
     },
     {
       label: "Peak lat G",
@@ -270,8 +270,10 @@ function ChannelPicker({
     { key: "lateral_g", label: "Lat G" },
   ];
   return (
+    // Toggle buttons, not role="radiogroup": radio semantics promise arrow-key
+    // roving focus these plain buttons don't implement. aria-pressed announces
+    // the active choice honestly with standard Tab/Enter behavior.
     <div
-      role="radiogroup"
       aria-label="Colour channel"
       className="flex gap-0.5 rounded-xl bg-surface-secondary p-0.5 text-xs"
     >
@@ -281,8 +283,7 @@ function ChannelPicker({
           <button
             key={opt.key}
             type="button"
-            role="radio"
-            aria-checked={active}
+            aria-pressed={active}
             onClick={() => onChange(opt.key)}
             className={
               active

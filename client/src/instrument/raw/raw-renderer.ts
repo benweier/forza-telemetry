@@ -71,7 +71,7 @@ export class RawInstrumentRenderer implements InstrumentRenderer {
     this.device = res.device;
     this.context = res.context;
     this.format = res.format;
-    this.palette = { ...DEFAULT_PALETTE, ...(opts.colors ?? {}) };
+    this.palette = { ...DEFAULT_PALETTE, ...opts.colors };
 
     // ── Instrument pass (renders into sceneTex, rgba16float) ─────────────
     const instrModule = this.device.createShaderModule({ code: instrumentsWGSL });
@@ -138,7 +138,7 @@ export class RawInstrumentRenderer implements InstrumentRenderer {
     });
 
     // ── Text (MSDF) pass ─────────────────────────────────────────────────
-    const rawAtlas = atlasJson as unknown as RawAtlas;
+    const rawAtlas: RawAtlas = atlasJson;
     this.glyphMap = buildGlyphMap(rawAtlas);
     this.atlasCommon = rawAtlas.common;
 

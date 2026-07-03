@@ -41,7 +41,7 @@ export function GamePreview({ url }: { url: string }) {
   useEffect(() => {
     if (!url) {
       setStatus("idle");
-      return;
+      return undefined;
     }
 
     let stopped = false;
@@ -60,7 +60,11 @@ export function GamePreview({ url }: { url: string }) {
       if (stopped) return;
       teardown();
       setStatus("connecting");
-      retryTimer = setTimeout(connect, retryMs);
+      // One failure can reach here twice (ICE state handler + connect's catch);
+      // without this clear, two timers stack and connect() runs concurrently,
+      // leaking the overwritten RTCPeerConnection.
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => void connect(), retryMs);
       retryMs = Math.min(retryMs * 2, 10_000);
     };
 
@@ -103,7 +107,7 @@ export function GamePreview({ url }: { url: string }) {
       }
     };
 
-    connect();
+    void connect();
     return () => {
       stopped = true;
       clearTimeout(retryTimer);
@@ -118,6 +122,7 @@ export function GamePreview({ url }: { url: string }) {
         autoPlay
         muted={muted}
         playsInline
+        aria-label="Live game preview stream"
         onPlaying={() => setStatus("playing")}
         className="size-full object-contain"
       />

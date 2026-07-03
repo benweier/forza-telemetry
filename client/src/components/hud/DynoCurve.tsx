@@ -12,9 +12,9 @@ export function DynoCurve({ tick }: { tick: TickFrame }) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return undefined;
 
     const cs = getComputedStyle(document.documentElement);
     const powerColor = cs.getPropertyValue("--accent").trim() || "#F8F8F9";

@@ -51,9 +51,9 @@ export function Sparkline({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return undefined;
 
     const cs = getComputedStyle(document.documentElement);
     const stroke = cs.getPropertyValue(colorVar).trim() || "#F8F8F9";

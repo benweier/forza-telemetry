@@ -19,7 +19,11 @@
     "typeCheck": true
   },
   "rules": {
-    "import/no-default-export": "error"
+    "import/no-default-export": "error",
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+    "react/react-in-jsx-scope": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/media-has-caption": "off"
   },
   "overrides": [
     {

@@ -16,23 +16,23 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => {
-            router.invalidate();
+            void router.invalidate();
           }}
-          className="rounded-sm bg-gray-600 px-2 py-1 font-extrabold text-white uppercase dark:bg-gray-700"
+          className="rounded-sm bg-accent px-2 py-1 font-extrabold text-accent-foreground uppercase"
         >
           Try Again
         </button>
         {isRoot ? (
           <Link
             to="/"
-            className="rounded-sm bg-gray-600 px-2 py-1 font-extrabold text-white uppercase dark:bg-gray-700"
+            className="rounded-sm bg-surface-secondary px-2 py-1 font-extrabold text-foreground uppercase"
           >
             Home
           </Link>
         ) : (
           <Link
             to="/"
-            className="rounded-sm bg-gray-600 px-2 py-1 font-extrabold text-white uppercase dark:bg-gray-700"
+            className="rounded-sm bg-surface-secondary px-2 py-1 font-extrabold text-foreground uppercase"
             onClick={(e) => {
               e.preventDefault();
               window.history.back();

@@ -44,7 +44,7 @@ function SessionsIndexRoute() {
 
 function SessionList({ sessions }: { sessions: Session[] }) {
   return (
-    <ul className="flex flex-col gap-2" role="list">
+    <ul className="flex flex-col gap-2">
       {sessions.map((s) => (
         <li key={s.id}>
           <SessionRow session={s} />

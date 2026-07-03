@@ -2,6 +2,20 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import type { EventEmitter } from "node:events";
+
+const benignProxyError = (err: unknown) =>
+  typeof err === "object" &&
+  err !== null &&
+  "code" in err &&
+  typeof err.code === "string" &&
+  ["ECONNRESET", "EPIPE"].includes(err.code);
+
+const muteBenignErrors = (em: EventEmitter) => {
+  const original = em.emit.bind(em);
+  em.emit = (event, ...args) =>
+    event === "error" && benignProxyError(args[0]) ? false : original(event, ...args);
+};
 
 export default defineConfig({
   plugins: [tailwindcss(), tanstackStart({ spa: { enabled: true } }), react()],
@@ -38,17 +52,10 @@ export default defineConfig({
         // those two codes before Vite's listeners see them. Real failures like
         // ECONNREFUSED (server down) still log loudly.
         configure: (proxy) => {
-          const benign = (err: unknown) =>
-            !!err && ["ECONNRESET", "EPIPE"].includes((err as NodeJS.ErrnoException).code ?? "");
-          const muteErrors = (em: { emit: (event: string, ...args: unknown[]) => boolean }) => {
-            const original = em.emit.bind(em);
-            em.emit = (event, ...args) =>
-              event === "error" && benign(args[0]) ? false : original(event, ...args);
-          };
-          muteErrors(proxy as never);
+          muteBenignErrors(proxy);
           // The per-socket error fires on the upgraded socket, not the proxy —
           // wrap it too, before Vite's proxyReqWs handler attaches its logger.
-          proxy.on("proxyReqWs", (_proxyReq, _req, socket) => muteErrors(socket as never));
+          proxy.on("proxyReqWs", (_proxyReq, _req, socket) => muteBenignErrors(socket));
         },
       },
       "/healthz": {

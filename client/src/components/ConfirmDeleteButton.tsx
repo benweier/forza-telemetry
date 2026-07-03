@@ -29,11 +29,11 @@ export function ConfirmDeleteButton({
   const state = useOverlayState();
   return (
     <>
-      <Button size="sm" variant="outline" isDisabled={isDisabled} onPress={state.open}>
+      <Button size="sm" variant="outline" isDisabled={isDisabled} onPress={() => state.open()}>
         <Icon icon="lucide:trash-2" className="mr-1.5 size-4 text-danger" />
         {triggerLabel}
       </Button>
-      <AlertDialog.Backdrop isOpen={state.isOpen} onOpenChange={state.setOpen}>
+      <AlertDialog.Backdrop isOpen={state.isOpen} onOpenChange={(open) => state.setOpen(open)}>
         <AlertDialog.Container>
           <AlertDialog.Dialog className="sm:max-w-[420px]">
             <AlertDialog.CloseTrigger />

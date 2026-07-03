@@ -12,7 +12,7 @@ export function InstrumentCanvas() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
     const renderer = new RawInstrumentRenderer();
     let raf = 0;
     let disposed = false;
@@ -74,15 +74,20 @@ export function InstrumentCanvas() {
 
     const ro = new ResizeObserver(sizeToBox);
 
-    renderer
-      .init(canvas, {})
-      .then(() => {
+    const boot = async () => {
+      try {
+        await renderer.init(canvas, {});
         if (disposed) return;
         sizeToBox();
         ro.observe(canvas);
         raf = requestAnimationFrame(loop);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      } catch (e) {
+        // Don't setState after unmount — StrictMode's mount/unmount/mount
+        // cycle rejects the first init when destroy() races it.
+        if (!disposed) setError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    void boot();
 
     return () => {
       disposed = true;
@@ -106,6 +111,8 @@ export function InstrumentCanvas() {
   return (
     <canvas
       ref={canvasRef}
+      role="img"
+      aria-label="Live instrument cluster: speed, RPM, inputs, and g-forces"
       className="aspect-[16/9] w-full rounded-2xl bg-surface shadow-surface"
     />
   );

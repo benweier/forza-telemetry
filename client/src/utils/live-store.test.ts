@@ -1,10 +1,11 @@
 import { expect, test } from "vitest";
 import { displayIndex, displayTick } from "./live-store";
+import { tickFixture } from "~/test/tick-fixture";
 import type { TickFrame } from "~/types/tick.generated";
 
 // Synthetic ring: one tick per 100 ms, sts in epoch-ns. Index i is at i*100 ms.
 const MS = 1e6;
-const ring = Array.from({ length: 10 }, (_, i) => ({ sts: i * 100 * MS }) as unknown as TickFrame);
+const ring = Array.from({ length: 10 }, (_, i) => tickFixture({ sts: i * 100 * MS }));
 
 test("preview off returns the latest index", () => {
   expect(displayIndex({ ring, previewEnabled: false, offsetMs: 500 })).toBe(9);

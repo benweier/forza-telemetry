@@ -22,12 +22,14 @@ interface LiveState {
   /** WHEP playback URL of the MediaMTX relay. Not used by the selector — only by
    *  the preview pane — but persisted alongside the other preview config. */
   whepUrl: string;
-  setConnected(connected: boolean): void;
-  push(tick: TickFrame): void;
-  clear(): void;
-  setPreviewEnabled(enabled: boolean): void;
-  setOffsetMs(ms: number): void;
-  setWhepUrl(url: string): void;
+  // Property syntax (not method syntax) — these are arrow functions with no
+  // `this`, and selectors hand them out unbound (`useLiveStore(s => s.push)`).
+  setConnected: (connected: boolean) => void;
+  push: (tick: TickFrame) => void;
+  clear: () => void;
+  setPreviewEnabled: (enabled: boolean) => void;
+  setOffsetMs: (ms: number) => void;
+  setWhepUrl: (url: string) => void;
 }
 
 const clampOffset = (ms: number) => Math.max(0, Math.min(MAX_OFFSET_MS, Math.round(ms || 0)));
@@ -41,12 +43,15 @@ function loadPreview(): PreviewConfig {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Partial<Record<keyof PreviewConfig, unknown>>;
-      return {
-        previewEnabled: !!p.previewEnabled,
-        offsetMs: clampOffset(Number(p.offsetMs)),
-        whepUrl: typeof p.whepUrl === "string" ? p.whepUrl : "",
-      };
+      const p: unknown = JSON.parse(raw);
+      if (typeof p === "object" && p !== null) {
+        const rec: Partial<Record<keyof PreviewConfig, unknown>> = p;
+        return {
+          previewEnabled: !!rec.previewEnabled,
+          offsetMs: clampOffset(Number(rec.offsetMs)),
+          whepUrl: typeof rec.whepUrl === "string" ? rec.whepUrl : "",
+        };
+      }
     }
   } catch {
     // Corrupt/blocked storage — fall through to defaults.
