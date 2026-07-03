@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { displayTick, useLiveStore } from "~/utils/live-store";
+import { readDisplayTick } from "~/utils/live-store";
 import { makeSmoother, stepSmoother, type Smoother } from "./core/physics";
 import { targetsFromTick, buildInstrumentState } from "./core/state";
 import { RawInstrumentRenderer } from "./raw/raw-renderer";
@@ -42,7 +42,7 @@ export function InstrumentCanvas() {
         const now = performance.now();
         const dt = Math.min(0.05, (now - last) / 1000);
         last = now;
-        const t = displayTick(useLiveStore.getState());
+        const t = readDisplayTick();
         if (t) {
           const tg = targetsFromTick(t, rmx);
           rmx = tg.rmx;

@@ -9,12 +9,24 @@ export const MAX_OFFSET_MS = 2000;
 
 const LS_KEY = "forza.preview";
 
+/** The last ~60 s of ticks. Deliberately NOT in the Zustand state: it mutates
+ *  in place at 60 Hz, so a `ring` field could never be honestly reactive — an
+ *  earlier version kept it in state and `useLiveStore(s => s.ring)` silently
+ *  never fired. Every consumer reads it imperatively (rAF loops, or selectors
+ *  recomputed on the per-push `latest`/`lastPushedAt` bump). */
+const ring: TickFrame[] = [];
+
+/** Imperative read of the live ring. The same (mutating) array every call —
+ *  read it fresh each frame; don't cache slices across frames. */
+export function getRing(): readonly TickFrame[] {
+  return ring;
+}
+
 interface LiveState {
   connected: boolean;
   /** Wall-clock ms of the most recent push — used to detect a stale feed. */
   lastPushedAt: number | null;
   latest: TickFrame | null;
-  ring: TickFrame[];
   /** Game-preview mode: hold the displayed telemetry back by `offsetMs` to match
    *  the WebRTC video's latency (see ADR 0010). Off → views render `latest`. */
   previewEnabled: boolean;
@@ -79,16 +91,19 @@ export const useLiveStore = create<LiveState>((set, get) => ({
   connected: false,
   lastPushedAt: null,
   latest: null,
-  ring: [],
   ...loadPreview(),
   setConnected: (connected) => set({ connected }),
   push: (tick) => {
-    const next = get().ring;
-    next.push(tick);
-    if (next.length > RING_SIZE) next.shift();
-    set({ latest: tick, ring: next, lastPushedAt: Date.now() });
+    ring.push(tick);
+    if (ring.length > RING_SIZE) ring.shift();
+    // The state bump is what re-fires reactive selectors (useDisplayTick) —
+    // the ring itself never signals.
+    set({ latest: tick, lastPushedAt: Date.now() });
   },
-  clear: () => set({ latest: null, ring: [], lastPushedAt: null }),
+  clear: () => {
+    ring.length = 0;
+    set({ latest: null, lastPushedAt: null });
+  },
   setPreviewEnabled: (previewEnabled) => {
     set({ previewEnabled });
     savePreview(get());
@@ -106,8 +121,12 @@ export const useLiveStore = create<LiveState>((set, get) => ({
 // ---------- Display selector (the one place "which tick do we show?" lives) ----------
 
 /** Just the fields the display selector needs — keeps the pure helpers trivially
- *  testable without constructing a whole store. */
-type DisplaySlice = Pick<LiveState, "ring" | "previewEnabled" | "offsetMs">;
+ *  testable without constructing a whole store (tests pass a synthetic ring). */
+type DisplaySlice = {
+  ring: readonly TickFrame[];
+  previewEnabled: boolean;
+  offsetMs: number;
+};
 
 /** Index into `ring` of the tick to display *now*. Returns the latest index when
  *  preview is off; otherwise the newest tick whose `sts` is at-or-before
@@ -130,9 +149,24 @@ export function displayTick(s: DisplaySlice): TickFrame | null {
   return i < 0 ? null : s.ring[i];
 }
 
+/** Imperative one-shot read of the display slice against the LIVE ring — what
+ *  rAF loops should call each frame. */
+export function readDisplaySlice(): DisplaySlice {
+  const { previewEnabled, offsetMs } = useLiveStore.getState();
+  return { ring, previewEnabled, offsetMs };
+}
+
+/** Imperative one-shot read of the tick to display now. */
+export function readDisplayTick(): TickFrame | null {
+  return displayTick(readDisplaySlice());
+}
+
 /** Reactive hook for components that subscribe to the displayed tick (re-renders
- *  per frame as the delayed pointer advances). Imperative rAF readers should call
- *  `displayTick(useLiveStore.getState())` instead. */
+ *  per frame as the delayed pointer advances). Recomputes on each push because
+ *  push bumps `latest`/`lastPushedAt` — the ring itself is not reactive state.
+ *  Imperative rAF readers should call `readDisplayTick()` instead. */
 export function useDisplayTick(): TickFrame | null {
-  return useLiveStore(displayTick);
+  return useLiveStore((s) =>
+    displayTick({ ring, previewEnabled: s.previewEnabled, offsetMs: s.offsetMs }),
+  );
 }

@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { displayIndex, displayTick } from "./live-store";
+import { afterEach, expect, test } from "vitest";
+import { displayIndex, displayTick, getRing, readDisplayTick, useLiveStore } from "./live-store";
 import { tickFixture } from "~/test/tick-fixture";
 import type { TickFrame } from "~/types/tick.generated";
 
@@ -30,4 +30,46 @@ test("empty ring yields index -1 and a null tick", () => {
   const empty = { ring: [] as TickFrame[], previewEnabled: true, offsetMs: 100 };
   expect(displayIndex(empty)).toBe(-1);
   expect(displayTick(empty)).toBeNull();
+});
+
+// ---------- store-level ring behavior (the ring lives OUTSIDE reactive state) ----------
+
+afterEach(() => {
+  useLiveStore.getState().clear();
+  useLiveStore.getState().setPreviewEnabled(false);
+  useLiveStore.getState().setOffsetMs(0);
+});
+
+test("push appends to the module ring and bumps latest", () => {
+  const s = useLiveStore.getState();
+  s.push(tickFixture({ sts: 1 * MS }));
+  s.push(tickFixture({ sts: 2 * MS }));
+  expect(getRing()).toHaveLength(2);
+  expect(useLiveStore.getState().latest?.sts).toBe(2 * MS);
+  expect(useLiveStore.getState().lastPushedAt).not.toBeNull();
+});
+
+test("ring caps at 3600 ticks, dropping the oldest", () => {
+  const s = useLiveStore.getState();
+  for (let i = 0; i < 3605; i++) s.push(tickFixture({ sts: i * MS }));
+  expect(getRing()).toHaveLength(3600);
+  expect(getRing()[0].sts).toBe(5 * MS); // 0..4 evicted
+});
+
+test("clear empties the ring and resets latest", () => {
+  const s = useLiveStore.getState();
+  s.push(tickFixture({ sts: 1 * MS }));
+  s.clear();
+  expect(getRing()).toHaveLength(0);
+  expect(useLiveStore.getState().latest).toBeNull();
+  expect(readDisplayTick()).toBeNull();
+});
+
+test("readDisplayTick reads the live ring: latest when preview off, delayed when on", () => {
+  const s = useLiveStore.getState();
+  for (let i = 0; i < 10; i++) s.push(tickFixture({ sts: i * 100 * MS }));
+  expect(readDisplayTick()?.sts).toBe(900 * MS);
+  s.setPreviewEnabled(true);
+  s.setOffsetMs(250); // 900ms − 250ms → floor to the 600ms tick
+  expect(readDisplayTick()?.sts).toBe(600 * MS);
 });

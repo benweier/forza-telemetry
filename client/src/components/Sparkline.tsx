@@ -2,7 +2,7 @@
  * states: default · empty
  */
 import { useEffect, useRef } from "react";
-import { displayIndex, useLiveStore } from "~/utils/live-store";
+import { displayIndex, readDisplaySlice } from "~/utils/live-store";
 import type { TickFrame } from "~/types/tick.generated";
 
 /**
@@ -27,10 +27,9 @@ interface SparklineProps {
 
 /**
  * Canvas sparkline of the last `windowSec` of a single channel, sourced from
- * the live ring buffer. Drives itself off a rAF loop reading the store
- * imperatively — `push()` mutates the ring in place (stable ref), so a Zustand
- * subscription wouldn't fire; polling the ring per frame sidesteps that and
- * keeps redraws off React's render path entirely.
+ * the live ring buffer. Drives itself off a rAF loop reading the ring
+ * imperatively (`readDisplaySlice()` — the ring lives outside the store, by
+ * design), keeping 60 Hz redraws off React's render path entirely.
  */
 export function Sparkline({
   label,
@@ -68,7 +67,7 @@ export function Sparkline({
     // drops the oldest (FIFO), so it scrolls left without ever rescaling.
     const capacity = Math.max(2, Math.round(windowSec * SAMPLE_HZ));
 
-    const redraw = (ring: TickFrame[]) => {
+    const redraw = (ring: readonly TickFrame[]) => {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -137,7 +136,7 @@ export function Sparkline({
       // `finally` so one bad frame can't blank the canvas for the session. Log
       // the first failure (not every frame) so it isn't swallowed silently.
       try {
-        const s = useLiveStore.getState();
+        const s = readDisplaySlice();
         // `end` is the delayed "now" index in preview mode, else the latest.
         const end = displayIndex(s);
         if (end >= 0) {
