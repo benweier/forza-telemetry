@@ -9,6 +9,11 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { PreviewSample, TicksResponse } from "~/utils/schemas";
 
+// uPlot paints axis text on canvas, so the family must be spelled out here —
+// CSS vars don't reach it. Matches --font-inter in app.css (self-hosted).
+const CHART_FONT_FAMILY = '"Inter Variable", Inter, system-ui';
+const CHART_FONT = `12px ${CHART_FONT_FAMILY}`;
+
 interface TickPreviewChartProps {
   /** 1Hz aggregate preview spanning the whole stint. */
   samples: PreviewSample[];
@@ -146,22 +151,22 @@ export function TickPreviewChart({
           stroke: muted,
           grid: { stroke: separator, width: 1 },
           ticks: { stroke: separator },
-          font: "12px Inter, system-ui",
+          font: CHART_FONT,
           label: "Second",
           labelGap: 4,
           labelSize: 22,
-          labelFont: "12px Inter, system-ui",
+          labelFont: CHART_FONT,
         },
         {
           scale: "speed",
           stroke: muted,
           grid: { stroke: separator, width: 1 },
           ticks: { stroke: separator },
-          font: "12px Inter, system-ui",
+          font: CHART_FONT,
           label: "Speed (m/s)",
           labelGap: 4,
           labelSize: 22,
-          labelFont: "12px Inter, system-ui",
+          labelFont: CHART_FONT,
         },
         {
           scale: "lat",
@@ -169,11 +174,11 @@ export function TickPreviewChart({
           stroke: muted,
           grid: { show: false },
           ticks: { stroke: separator },
-          font: "12px Inter, system-ui",
+          font: CHART_FONT,
           label: "Lateral G / Brake %",
           labelGap: 4,
           labelSize: 22,
-          labelFont: "12px Inter, system-ui",
+          labelFont: CHART_FONT,
         },
       ],
       series: [
@@ -215,7 +220,7 @@ export function TickPreviewChart({
     const legend = container.querySelector(".u-legend");
     if (legend instanceof HTMLElement) {
       legend.style.color = foreground;
-      legend.style.fontFamily = "Inter, system-ui";
+      legend.style.fontFamily = CHART_FONT_FAMILY;
       legend.style.fontSize = "12px";
     }
 
