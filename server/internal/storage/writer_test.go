@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"os"
@@ -253,15 +254,24 @@ func TestWriterRotatesSegments(t *testing.T) {
 			carOrdinal:      100,
 		}))
 	}
+	// A gap tick forces stint 1 to CLOSE before we assert — waiting on the row
+	// alone raced tick consumption (the row exists from the first tick, so a
+	// slow consumer could be cancelled mid-stream; -race caught this at 7/10).
+	// Stint 2 is a 1-tick throwaway that shutdown discards as sub-minimum.
+	writer.broker.Publish(makeTick(base+int64(20*time.Second), tickOpts{
+		isRaceOn:        true,
+		currentRaceTime: 10,
+		carOrdinal:      100,
+	}))
 
-	waitForStints(t, store, writer.sessionID, 1)
+	waitForStints(t, store, writer.sessionID, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
 	stints := readStints(t, store, writer.sessionID)
 	if len(stints) != 1 {
-		t.Fatalf("rotation must not split the stint: want 1 stint, got %d", len(stints))
+		t.Fatalf("want 1 surviving stint (throwaway discarded), got %d", len(stints))
 	}
 	if stints[0].tickCount != 10 {
 		t.Errorf("tick_count want 10 got %d", stints[0].tickCount)
@@ -593,4 +603,64 @@ func singleParquetRowCount(t *testing.T, path string) int64 {
 		t.Fatalf("OpenFile parquet: %v", err)
 	}
 	return pf.NumRows()
+}
+
+// Aggregation must be OFF the consume loop: while a closed stint's aggregation
+// is blocked, the writer must keep consuming ticks and open the next stint.
+// And shutdown must wait for pending aggregations, so summaries always land
+// before the store closes.
+func TestWriterAggregationOffHotPath(t *testing.T) {
+	block := make(chan struct{})
+	defer func() {
+		select {
+		case <-block: // already released
+		default:
+			close(block) // failing path: unblock so shutdown's Wait can't hang
+		}
+	}()
+	orig := aggregateStintFn
+	aggregateStintFn = func(db *sql.DB, in stintAggregateInput) error {
+		<-block
+		return orig(db, in)
+	}
+	defer func() { aggregateStintFn = orig }()
+
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	// Stint A, then a 15s gap forcing A to close — its aggregation blocks.
+	base := int64(0)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+	base += int64(15 * time.Second)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+
+	// Stint B's row appearing while A's aggregation is still blocked is the
+	// proof the hot path no longer waits on the heavy scans.
+	waitForStints(t, store, writer.sessionID, 2)
+
+	var summaries int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stint_summary`).Scan(&summaries); err != nil {
+		t.Fatal(err)
+	}
+	if summaries != 0 {
+		t.Fatalf("aggregation ran on the hot path: %d summaries while blocked", summaries)
+	}
+
+	close(block)
+	cancel()
+	sub.Close()
+	_ = <-done // Run returns only after shutdown's aggWG.Wait()
+
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stint_summary`).Scan(&summaries); err != nil {
+		t.Fatal(err)
+	}
+	if summaries != 2 {
+		t.Errorf("want 2 summaries after shutdown drain, got %d", summaries)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -36,6 +37,10 @@ type Writer struct {
 	// spans this much tick time. A crash costs at most the open segment
 	// (ADR 0011). Zero disables rotation.
 	rotateEvery time.Duration
+
+	// aggWG tracks in-flight async stint aggregations; shutdown waits on it
+	// so the final stint's summaries land before the store closes.
+	aggWG sync.WaitGroup
 
 	cur *stintState
 }
@@ -297,15 +302,27 @@ func (w *Writer) closeStint(reason string) error {
 
 	stintID := stintRowID(w.sessionID, cur.ordinal)
 
-	if err := aggregateStint(w.store.db, stintAggregateInput{
-		stintID:     stintID,
-		parquetPath: cur.path,
-	}); err != nil {
-		w.logger.Error("aggregate stint", "stint", cur.id, "err", err)
-		if closeErr == nil {
-			closeErr = err
+	// Aggregation scans the stint's whole parquet (seconds on long stints) and
+	// used to run inline here — the one stall long enough to overflow the tick
+	// subscription buffer and punch a gap in the raw capture. The row is
+	// already finalized above, so summaries can land moments later without the
+	// consume loop waiting. An aggregation failure no longer feeds the
+	// writer's failure counter either: the raw ticks are safely on disk, only
+	// the derived summary is missing.
+	//
+	// ponytail: a delete of this stint racing the seconds-long aggregation can
+	// make the FK reject one side (logged, harmless). Serialize via a worker
+	// queue if that ever bites.
+	w.aggWG.Add(1)
+	go func() {
+		defer w.aggWG.Done()
+		if err := aggregateStintFn(w.store.db, stintAggregateInput{
+			stintID:     stintID,
+			parquetPath: cur.path,
+		}); err != nil {
+			w.logger.Error("aggregate stint", "stint", cur.id, "err", err)
 		}
-	}
+	}()
 
 	w.logger.Info("stint closed",
 		"stint", cur.id,
@@ -353,6 +370,10 @@ func discardCause(duration, minDuration time.Duration, tickCount, minTicks int64
 	return ""
 }
 
+// aggregateStintFn is a seam for tests to observe/block async aggregation;
+// production always points at aggregateStint.
+var aggregateStintFn = aggregateStint
+
 // shutdown is the deferred cleanup path; logs but does not propagate errors,
 // since Run() may be returning for an unrelated reason.
 func (w *Writer) shutdown() {
@@ -365,6 +386,10 @@ func (w *Writer) shutdown() {
 	); err != nil {
 		w.logger.Error("mark session ended", "err", err)
 	}
+	// Run() must not return until every async aggregation has landed — main's
+	// shutdown drain closes the store right after, and a summary written to a
+	// closed DB would be lost for good (nothing recomputes it later).
+	w.aggWG.Wait()
 }
 
 // nextOrdinal returns MAX(ordinal)+1 so discarded stints don't cause ordinal
