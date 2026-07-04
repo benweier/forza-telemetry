@@ -7,6 +7,7 @@ import { COORDINATE_SYSTEM, OrbitView, type PickingInfo } from "@deck.gl/core";
 import { LineLayer } from "@deck.gl/layers";
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
+import { heatGradientCSS, resolveDomain, valueToColor } from "~/components/track-path-color";
 import type { PathResponse } from "~/utils/schemas";
 
 export type PathChannel = "speed" | "brake" | "lateral_g";
@@ -27,10 +28,11 @@ interface Segment {
 export function TrackPathMap({ path, channel = "speed" }: TrackPathMapProps) {
   const cfg = channelConfig[channel];
 
-  const { segments, extent } = useMemo(
+  const { segments, extent, peak } = useMemo(
     () => buildScene(path, cfg.colIndex),
     [path, cfg.colIndex],
   );
+  const domain = resolveDomain(cfg.absoluteMax, peak);
 
   if (segments.length < 1) {
     return (
@@ -53,12 +55,12 @@ export function TrackPathMap({ path, channel = "speed" }: TrackPathMapProps) {
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getSourcePosition: (s) => s.source,
       getTargetPosition: (s) => s.target,
-      getColor: (s) => valueToColor(s.value, cfg.max),
+      getColor: (s) => valueToColor(s.value, domain),
       getWidth: 3,
       widthUnits: "pixels",
       widthMinPixels: 2,
       pickable: true,
-      updateTriggers: { getColor: channel },
+      updateTriggers: { getColor: [channel, domain] },
     }),
   ];
 
@@ -80,7 +82,7 @@ export function TrackPathMap({ path, channel = "speed" }: TrackPathMapProps) {
         layers={layers}
         getTooltip={(info) => tooltipFor(info, channel)}
       />
-      <Legend hz={path.sample_hz} channel={channel} />
+      <Legend hz={path.sample_hz} channel={channel} peak={peak} />
       <Hint />
     </div>
   );
@@ -91,7 +93,10 @@ export function TrackPathMap({ path, channel = "speed" }: TrackPathMapProps) {
 interface ChannelConfig {
   label: string;
   colIndex: number;
-  max: number;
+  /** Fixed full-scale for channels with a true absolute range (brake is
+   *  genuinely 0..100%); null scales to the stint's own observed peak so red
+   *  means "this stint's fastest/hardest sections" (see track-path-color). */
+  absoluteMax: number | null;
   legendLow: string;
   legendHigh: string;
   format: (v: number) => string;
@@ -102,7 +107,7 @@ const channelConfig: Record<PathChannel, ChannelConfig> = {
   speed: {
     label: "Speed",
     colIndex: 4,
-    max: 90,
+    absoluteMax: null,
     legendLow: "slow",
     legendHigh: "fast",
     format: (v) => `${(v * 3.6).toFixed(0)} km/h`,
@@ -110,7 +115,7 @@ const channelConfig: Record<PathChannel, ChannelConfig> = {
   brake: {
     label: "Brake",
     colIndex: 6,
-    max: 1.0,
+    absoluteMax: 1.0,
     legendLow: "off",
     legendHigh: "100%",
     format: (v) => `${Math.round(v * 100)}% brake`,
@@ -118,7 +123,7 @@ const channelConfig: Record<PathChannel, ChannelConfig> = {
   lateral_g: {
     label: "Lateral G",
     colIndex: 7,
-    max: 2.0,
+    absoluteMax: null,
     legendLow: "none",
     legendHigh: "hard",
     format: (v) => `${Math.abs(v).toFixed(2)} G`,
@@ -145,25 +150,28 @@ interface PathPoint {
 function buildScene(
   path: PathResponse,
   channelColIndex: number,
-): { segments: Segment[]; extent: number } {
+): { segments: Segment[]; extent: number; peak: number } {
   const pts: PathPoint[] = [];
+  let peak = 0;
   for (const row of path.rows) {
     const tick = row[COL_TICK_NS];
     const x = row[COL_POS_X];
     const y = row[COL_POS_Y];
     const z = row[COL_POS_Z];
     if (tick === null || x === null || y === null || z === null) continue;
+    const channelValue = row[channelColIndex] ?? 0;
+    if (Math.abs(channelValue) > peak) peak = Math.abs(channelValue);
     pts.push({
       tickNS: tick,
       x,
       y,
       z,
-      channelValue: row[channelColIndex] ?? 0,
+      channelValue,
       lap: row[COL_LAP],
     });
   }
   if (pts.length < 2) {
-    return { segments: [], extent: 1 };
+    return { segments: [], extent: 1, peak };
   }
 
   let minX = Infinity,
@@ -198,38 +206,7 @@ function buildScene(
     };
   }
 
-  return { segments, extent };
-}
-
-// ---------- visuals ----------
-
-/**
- * Normalised value → 5-stop cool→hot ramp. Each channel supplies its own
- * `max`; the value is clipped to [0, 1].
- */
-function valueToColor(raw: number, max: number): [number, number, number, number] {
-  const t = Math.min(Math.max(Math.abs(raw) / max, 0), 1);
-  const stops: Array<[number, [number, number, number]]> = [
-    [0.0, [40, 90, 200]],
-    [0.25, [80, 200, 220]],
-    [0.5, [120, 220, 100]],
-    [0.75, [240, 200, 60]],
-    [1.0, [240, 80, 60]],
-  ];
-  for (let i = 1; i < stops.length; i++) {
-    const [tNext, cNext] = stops[i];
-    const [tPrev, cPrev] = stops[i - 1];
-    if (t <= tNext) {
-      const local = (t - tPrev) / (tNext - tPrev);
-      return [
-        Math.round(cPrev[0] + (cNext[0] - cPrev[0]) * local),
-        Math.round(cPrev[1] + (cNext[1] - cPrev[1]) * local),
-        Math.round(cPrev[2] + (cNext[2] - cPrev[2]) * local),
-        255,
-      ];
-    }
-  }
-  return [240, 80, 60, 255];
+  return { segments, extent, peak };
 }
 
 // ---------- tooltip ----------
@@ -252,21 +229,20 @@ function tooltipFor(info: PickingInfo, channel: PathChannel): string | null {
 
 // ---------- chrome ----------
 
-function Legend({ hz, channel }: { hz: number; channel: PathChannel }) {
+function Legend({ hz, channel, peak }: { hz: number; channel: PathChannel; peak: number }) {
   const cfg = channelConfig[channel];
+  // Relative channels must say what red IS for this stint, or two stints'
+  // maps become silently incomparable.
+  const high =
+    cfg.absoluteMax === null && peak > 0
+      ? `${cfg.legendHigh} · ${cfg.format(peak)}`
+      : cfg.legendHigh;
   return (
     <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-2 rounded-xl bg-surface-secondary/80 px-3 py-2 text-xs text-muted backdrop-blur">
       <span className="font-medium text-foreground/80">{cfg.label}</span>
       <span>{cfg.legendLow}</span>
-      <span
-        aria-hidden
-        className="h-2 w-24 rounded-full"
-        style={{
-          background:
-            "linear-gradient(to right, rgb(40,90,200), rgb(80,200,220), rgb(120,220,100), rgb(240,200,60), rgb(240,80,60))",
-        }}
-      />
-      <span>{cfg.legendHigh}</span>
+      <span aria-hidden className="h-2 w-24 rounded-full" style={{ background: heatGradientCSS }} />
+      <span>{high}</span>
       <span className="tabular-nums opacity-60">{hz.toFixed(0)}Hz</span>
     </div>
   );
