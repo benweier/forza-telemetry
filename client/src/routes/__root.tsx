@@ -1,4 +1,6 @@
 import { Toast } from "@heroui/react";
+import { addCollection } from "@iconify/react";
+import { icons as lucideIcons } from "@iconify-json/lucide";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
@@ -9,6 +11,13 @@ import appCss from "~/styles/app.css?url";
 import { seo } from "~/utils/seo";
 import type { QueryClient } from "@tanstack/react-query";
 import type * as React from "react";
+
+// Bundle the full lucide set so icons render offline — @iconify/react
+// otherwise fetches icon data from api.iconify.design at runtime, and on an
+// offline LAN every icon silently became an empty <span>. ~540KB raw
+// (~100KB gz) inside an embedded binary buys "any lucide name always works"
+// with no per-icon bookkeeping. Runs at module scope, before any Icon mounts.
+addCollection(lucideIcons);
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
