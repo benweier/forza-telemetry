@@ -1,46 +1,26 @@
 package storage
 
-import (
-	"testing"
-
-	"github.com/benweier/forza-telemetry/server/internal/tick"
-)
-
-func TestCategorize(t *testing.T) {
-	cases := []struct {
-		name string
-		in   tick.Tick
-		want stintCategory
-	}{
-		{"menu", tick.Tick{IsRaceOn: false}, categoryIdle},
-		{"freeroam", tick.Tick{IsRaceOn: true, CurrentRaceTime: 0}, categoryFreeroam},
-		{"race in progress", tick.Tick{IsRaceOn: true, CurrentRaceTime: 42.5}, categoryRace},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := categorize(&c.in); got != c.want {
-				t.Errorf("categorize: got %d want %d", got, c.want)
-			}
-		})
-	}
-}
+import "testing"
 
 func TestResolveStintType(t *testing.T) {
 	cases := []struct {
 		name     string
-		cat      stintCategory
+		raceOn   bool
+		sawRace  bool
 		lapDelta uint16
 		want     string
 	}{
-		{"idle", categoryIdle, 0, "idle"},
-		{"freeroam", categoryFreeroam, 0, "freeroam"},
-		{"race no laps -> sprint", categoryRace, 0, "sprint"},
-		{"race with laps -> circuit", categoryRace, 3, "circuit"},
-		{"race single lap inc -> circuit", categoryRace, 1, "circuit"},
+		{"idle", false, false, 0, "idle"},
+		{"idle outranks sawRace", false, true, 0, "idle"},
+		{"freeroam", true, false, 0, "freeroam"},
+		{"race no laps -> sprint", true, true, 0, "sprint"},
+		{"race with laps -> circuit", true, true, 3, "circuit"},
+		{"race single lap inc -> circuit", true, true, 1, "circuit"},
+		{"laps without race time stay freeroam", true, false, 2, "freeroam"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolveStintType(c.cat, c.lapDelta); got != c.want {
+			if got := resolveStintType(c.raceOn, c.sawRace, c.lapDelta); got != c.want {
 				t.Errorf("resolveStintType: got %q want %q", got, c.want)
 			}
 		})

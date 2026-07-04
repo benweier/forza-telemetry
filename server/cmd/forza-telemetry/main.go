@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/benweier/forza-telemetry/server/internal/api"
 	"github.com/benweier/forza-telemetry/server/internal/config"
@@ -76,10 +75,7 @@ func serve(args []string) error {
 		}
 	}()
 
-	writer, err := store.NewWriter(time.Now())
-	if err != nil {
-		return fmt.Errorf("create writer: %w", err)
-	}
+	writer := store.NewWriter()
 	// The writer is a durability consumer: give it a ring-sized buffer so a
 	// multi-second stall (stint-close aggregation) can't overflow it and
 	// silently punch a hole in the raw capture.
@@ -97,11 +93,12 @@ func serve(args []string) error {
 	go func() { errCh <- srv.Run(ctx) }()
 	go func() { errCh <- writer.Run(ctx, writerSub) }()
 
+	// Sessions are data-driven (ADR 0012): the writer opens one when the first
+	// packet arrives, so there is no session ID to report at boot.
 	logger.Info("forza-telemetry server started",
 		"udp_addr", cfg.Ingest.Addr,
 		"http_addr", cfg.API.Addr,
 		"data_dir", cfg.Storage.DataDir,
-		"session", writer.SessionID(),
 	)
 
 	received := 0

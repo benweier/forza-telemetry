@@ -87,18 +87,18 @@ func recoverOneStint(db *sql.DB, logger *slog.Logger, stintID, glob string) erro
 	}
 
 	// Reconstruct Writer.closeStint's fields from the durable segments. A stint
-	// has one category and one car for its whole span (ADR 0006 invariants), so
-	// aggregates over the ticks recover them exactly; MAX() on the car fields
-	// mirrors the writer's backfill-first-nonzero semantics.
+	// has one IsRaceOn state and one car for its whole span (ADR 0013 split
+	// axes), so aggregates over the ticks recover them exactly; MAX() on the
+	// car fields mirrors the writer's backfill-first-nonzero semantics.
 	var (
-		tickCount            int64
-		firstNS, lastNS      int64
-		firstGameTS          int64
-		lastGameTS           int64
-		carOrdinal           int32
-		carClass, carPI      int32
-		lapMin, lapMax       int64
-		anyRaceOn, anyRaceTm bool
+		tickCount       int64
+		firstNS, lastNS int64
+		firstGameTS     int64
+		lastGameTS      int64
+		carOrdinal      int32
+		carClass, carPI int32
+		lapMin, lapMax  int64
+		raceOn, sawRace bool
 	)
 	if err := db.QueryRow(fmt.Sprintf(
 		`SELECT COUNT(*), MIN(server_recv_ns), MAX(server_recv_ns),
@@ -108,19 +108,12 @@ func recoverOneStint(db *sql.DB, logger *slog.Logger, stintID, glob string) erro
 		        BOOL_OR(is_race_on), BOOL_OR(current_race_s > 0)
 		 FROM read_parquet('%s')`, escapeSQLLiteral(glob)),
 	).Scan(&tickCount, &firstNS, &lastNS, &firstGameTS, &lastGameTS,
-		&carOrdinal, &carClass, &carPI, &lapMin, &lapMax, &anyRaceOn, &anyRaceTm); err != nil {
+		&carOrdinal, &carClass, &carPI, &lapMin, &lapMax, &raceOn, &sawRace); err != nil {
 		return fmt.Errorf("scan recovered stats: %w", err)
 	}
 
-	category := categoryIdle
-	if anyRaceOn {
-		category = categoryFreeroam
-		if anyRaceTm {
-			category = categoryRace
-		}
-	}
 	duration := time.Duration(lastNS - firstNS)
-	if cause := discardCause(duration, minStintDuration, tickCount, minStintTicks, category, carOrdinal); cause != "" {
+	if cause := discardCause(duration, minStintDuration, tickCount, minStintTicks, raceOn, carOrdinal); cause != "" {
 		if _, err := db.Exec(`DELETE FROM stints WHERE id = ?`, stintID); err != nil {
 			return fmt.Errorf("delete unrecoverable stint row: %w", err)
 		}
@@ -129,7 +122,7 @@ func recoverOneStint(db *sql.DB, logger *slog.Logger, stintID, glob string) erro
 		return nil
 	}
 
-	stintType := resolveStintType(category, uint16(lapMax-lapMin))
+	stintType := resolveStintType(raceOn, sawRace, uint16(lapMax-lapMin))
 	if _, err := db.Exec(
 		`UPDATE stints
 		 SET ended_at_ns = ?, tick_count = ?,

@@ -15,23 +15,31 @@ import (
 	"github.com/benweier/forza-telemetry/server/internal/tick"
 )
 
-// Writer owns the per-Session Stint lifecycle: it reads ticks from a broker
-// subscription and splits them into Stints on the rules from ADR 0006:
+// Writer owns the Session + Stint lifecycle: it reads ticks from a broker
+// subscription and splits them into Stints on the rules from ADR 0013:
 //
 //   - a packet-arrival gap of >= gapThreshold
-//   - a change of stint category (idle / freeroam / race)
+//   - an IsRaceOn flip (gameplay <-> menus/loading/pause)
 //   - a change of Car (CarOrdinal)
 //
-// Each Stint is written to its own Parquet file under parquet/hot/<session>/,
-// with metadata rows maintained in DuckDB. Stints shorter than minDuration are
-// discarded at close (file removed, row deleted).
+// Each Stint is written to its own Parquet segment dir under
+// parquet/hot/<session>/, with metadata rows maintained in DuckDB. Stints
+// shorter than minDuration are discarded at close (files removed, row
+// deleted).
 type Writer struct {
 	store        *Store
-	sessionID    string
 	logger       *slog.Logger
 	gapThreshold time.Duration
+	sessionGap   time.Duration
 	minDuration  time.Duration
 	minTicks     int64
+
+	// Session state (ADR 0012): created lazily on the first tick, split on a
+	// sessionGap silence or a GameTSMillis regression (game reboot). All
+	// fields are touched only by the Run goroutine.
+	sessionID     string
+	sessionLastNS int64
+	sessionLastTS uint32
 	// rotateEvery bounds crash loss: the current Parquet segment is closed
 	// (footer + fsync — durable) and a new one opened whenever the segment
 	// spans this much tick time. A crash costs at most the open segment
@@ -66,9 +74,13 @@ type stintState struct {
 	carOrdinal    int32
 	carClass      int32
 	carPI         int32
-	category      stintCategory
-	lapMin        uint16
-	lapMax        uint16
+	// raceOn is uniform for the stint's whole span (an IsRaceOn flip splits);
+	// sawRace records whether any tick had CurrentRaceTime > 0 — it classifies
+	// the stint at close but never splits it (ADR 0013).
+	raceOn  bool
+	sawRace bool
+	lapMin  uint16
+	lapMax  uint16
 }
 
 // maxConsecutiveFailures is how many back-to-back tick-handling errors the
@@ -119,6 +131,22 @@ func (w *Writer) Run(ctx context.Context, sub *stream.Subscription) error {
 }
 
 func (w *Writer) handle(t *tick.Tick) error {
+	if w.sessionID == "" {
+		if err := w.openSession(t); err != nil {
+			return err
+		}
+	} else if reason := w.sessionSplitReason(t); reason != "" {
+		if err := w.closeStint(reason); err != nil {
+			return err
+		}
+		w.closeSession(reason)
+		if err := w.openSession(t); err != nil {
+			return err
+		}
+	}
+	w.sessionLastNS = t.ServerRecvNS
+	w.sessionLastTS = t.GameTSMillis
+
 	if w.cur == nil {
 		return w.openStint(t)
 	}
@@ -131,14 +159,82 @@ func (w *Writer) handle(t *tick.Tick) error {
 	return w.appendTick(t)
 }
 
+// tsRegressToleranceMS absorbs out-of-order UDP delivery: only a GameTSMillis
+// jump backwards by more than this counts as a game reboot. (A uint32 wrap at
+// ~49.7 days of continuous game uptime would also read as a regression —
+// implausible enough to ignore; noted in docs/data-needed.md.)
+const tsRegressToleranceMS = 60_000
+
+// sessionSplitReason returns a non-empty reason when `t` belongs to a new
+// Session (ADR 0012): a silence gap of >= sessionGap, or the game's own clock
+// jumping backwards (a relaunch — GameTSMillis restarts near zero).
+func (w *Writer) sessionSplitReason(t *tick.Tick) string {
+	if t.ServerRecvNS-w.sessionLastNS >= w.sessionGap.Nanoseconds() {
+		return "session-gap"
+	}
+	if int64(t.GameTSMillis) < int64(w.sessionLastTS)-tsRegressToleranceMS {
+		return "game-restart"
+	}
+	return ""
+}
+
+func (w *Writer) openSession(t *tick.Tick) error {
+	id := sessionIDFromTime(time.Unix(0, t.ServerRecvNS))
+	if _, err := w.store.db.Exec(
+		`INSERT INTO sessions (id, started_at_ns) VALUES (?, ?)`,
+		id, t.ServerRecvNS,
+	); err != nil {
+		return fmt.Errorf("insert session: %w", err)
+	}
+	w.sessionID = id
+	w.logger.Info("session started", "session", id)
+	return nil
+}
+
+// closeSession stamps the session's end as its LAST TICK's arrival time (not
+// wall-clock now — after an hour-long gap the session ended an hour ago). A
+// session whose stints were all discarded is deleted outright, so long-running
+// servers don't accumulate empty rows between drives.
+func (w *Writer) closeSession(reason string) {
+	if w.sessionID == "" {
+		return
+	}
+	id := w.sessionID
+	w.sessionID = ""
+
+	var stints int
+	if err := w.store.db.QueryRow(
+		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, id,
+	).Scan(&stints); err != nil {
+		w.logger.Error("count session stints", "session", id, "err", err)
+		stints = 1 // fail safe: keep the row rather than risk deleting data
+	}
+	if stints == 0 {
+		if _, err := w.store.db.Exec(`DELETE FROM sessions WHERE id = ?`, id); err != nil {
+			w.logger.Error("delete empty session", "session", id, "err", err)
+		} else {
+			w.logger.Info("session discarded (no surviving stints)", "session", id, "reason", reason)
+		}
+		return
+	}
+	if _, err := w.store.db.Exec(
+		`UPDATE sessions SET ended_at_ns = ? WHERE id = ?`,
+		w.sessionLastNS, id,
+	); err != nil {
+		w.logger.Error("mark session ended", "session", id, "err", err)
+		return
+	}
+	w.logger.Info("session closed", "session", id, "reason", reason, "stints", stints)
+}
+
 // splitReason returns a non-empty reason if a new Stint should start at `t`,
-// otherwise "". Order: gap > category > car.
+// otherwise "". Order: gap > race-state > car (ADR 0013).
 func (w *Writer) splitReason(t *tick.Tick) string {
 	if t.ServerRecvNS-w.cur.lastTickNS >= w.gapThreshold.Nanoseconds() {
 		return "gap"
 	}
-	if categorize(t) != w.cur.category {
-		return "type"
+	if t.IsRaceOn != w.cur.raceOn {
+		return "race-state"
 	}
 	// Treat CarOrdinal==0 as "unknown / not yet populated" and don't split on
 	// transitions to/from unknown. A genuine car swap shows both ordinals
@@ -171,7 +267,7 @@ func (w *Writer) openStint(t *tick.Tick) error {
 		carOrdinal:    t.CarOrdinal,
 		carClass:      t.CarClass,
 		carPI:         t.CarPerformanceIndex,
-		category:      categorize(t),
+		raceOn:        t.IsRaceOn,
 		lapMin:        t.LapNumber,
 		lapMax:        t.LapNumber,
 	}
@@ -236,6 +332,9 @@ func (w *Writer) appendTick(t *tick.Tick) error {
 	w.cur.tickCount++
 	w.cur.lastTickNS = t.ServerRecvNS
 	w.cur.lastGameTSMS = t.GameTSMillis
+	if t.CurrentRaceTime > 0 {
+		w.cur.sawRace = true
+	}
 	if t.LapNumber < w.cur.lapMin {
 		w.cur.lapMin = t.LapNumber
 	}
@@ -268,14 +367,14 @@ func (w *Writer) closeStint(reason string) error {
 	closeErr := closeSegment(cur)
 
 	duration := time.Duration(cur.lastTickNS - cur.startedAtNS)
-	stintType := resolveStintType(cur.category, cur.lapMax-cur.lapMin)
+	stintType := resolveStintType(cur.raceOn, cur.sawRace, cur.lapMax-cur.lapMin)
 
 	// Discard noise before persisting. Idle stints (menus / loading / pause)
 	// and stints that never saw a real Car (CarOrdinal stays 0) carry no
 	// analysable telemetry and only pollute the history. Each routes to the
 	// same row+parquet removal as the sub-min case — and crucially runs before
-	// aggregateStint, so no child rows (turns / summaries) exist yet to orphan.
-	if cause := discardCause(duration, w.minDuration, cur.tickCount, w.minTicks, cur.category, cur.carOrdinal); cause != "" {
+	// aggregateStint, so no child rows (summaries) exist yet to orphan.
+	if cause := discardCause(duration, w.minDuration, cur.tickCount, w.minTicks, cur.raceOn, cur.carOrdinal); cause != "" {
 		if err := w.discardStint(cur, duration, cause); err != nil && closeErr == nil {
 			closeErr = err
 		}
@@ -354,14 +453,14 @@ func (w *Writer) discardStint(cur *stintState, duration time.Duration, cause str
 // discardCause returns a non-empty reason a freshly-closed stint should be
 // dropped rather than persisted, or "" to keep it. Order is cheapest-first;
 // the returned string is purely for the discard log line.
-func discardCause(duration, minDuration time.Duration, tickCount, minTicks int64, cat stintCategory, carOrdinal int32) string {
+func discardCause(duration, minDuration time.Duration, tickCount, minTicks int64, raceOn bool, carOrdinal int32) string {
 	if duration < minDuration {
 		return "sub-min duration"
 	}
 	if tickCount < minTicks {
 		return "too few ticks"
 	}
-	if cat == categoryIdle {
+	if !raceOn {
 		return "idle"
 	}
 	if carOrdinal == 0 {
@@ -380,12 +479,7 @@ func (w *Writer) shutdown() {
 	if err := w.closeStint("shutdown"); err != nil {
 		w.logger.Error("close stint on shutdown", "err", err)
 	}
-	if _, err := w.store.db.Exec(
-		`UPDATE sessions SET ended_at_ns = ? WHERE id = ?`,
-		time.Now().UnixNano(), w.sessionID,
-	); err != nil {
-		w.logger.Error("mark session ended", "err", err)
-	}
+	w.closeSession("shutdown")
 	// Run() must not return until every async aggregation has landed — main's
 	// shutdown drain closes the store right after, and a summary written to a
 	// closed DB would be lost for good (nothing recomputes it later).
@@ -413,5 +507,3 @@ func stintRowID(sessionID string, ordinal int) string {
 	return fmt.Sprintf("%s_%04d", sessionID, ordinal)
 }
 
-// SessionID exposes the active session ID for tests and logs.
-func (w *Writer) SessionID() string { return w.sessionID }

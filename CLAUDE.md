@@ -49,7 +49,7 @@ Forza UDP → ingest.Listener → parser (FH5 Sled/Dash, FH6 Dash)
          ├→ api.ws (WebSocket; msgpack tick frames)
          └→ storage.Writer (per-stint segmented Parquet + DuckDB metadata; 5-min rotation bounds crash loss, ADR 0011)
                     │
-                    ├→ stint detector (gap/type/car splits; discards sub-2s / <180-tick / idle / no-car stints)
+                    ├→ session + stint detector (session: 1h gap / game-clock regression; stint: 10min gap / IsRaceOn flip / car change; discards sub-2s / <180-tick / idle / no-car stints)
                     └→ aggregator (per-stint/lap summary + 1Hz preview)
 api.REST (sessions, stints, sub-resources, ticks) ← reads DuckDB + Parquet
 api.web (SPA embed)                              ← serves TanStack client _shell.html
@@ -75,7 +75,7 @@ api.web (SPA embed)                              ← serves TanStack client _she
 ## Important docs
 
 - **`CONTEXT.md`** — domain glossary. Canonical source for terminology.
-- **`docs/adr/*`** — committed architectural decisions (DuckDB+Parquet, raw-tick retention, additive Tick schema, msgpack WS transport, XDG paths, stint splits, turn-detection removal). Locked — read before contradicting.
+- **`docs/adr/*`** — committed architectural decisions (DuckDB+Parquet, raw-tick retention, additive Tick schema, msgpack WS transport, XDG paths, turn-detection removal, parquet segment rotation, data-driven sessions, stint split axes). Locked — read before contradicting.
 - **`docs/api.md`** — v1 REST schema spec with example responses + versioning policy (additive under `v1`; breaking → `v2`).
 - **`docs/data-needed.md`** — open empirical questions (FH6 byte 323 semantics, CarGroup enum, threshold tuning, missing detectors). **Update or remove entries when new captures resolve them.**
 - **`client/DESIGN.md`** — Glass theme tokens locked. Use semantic HeroUI/Tailwind tokens (`bg-surface`, `text-foreground`); never inline OKLCH/hex.
@@ -88,7 +88,7 @@ api.web (SPA embed)                              ← serves TanStack client _she
 - **`@iconify/react` silently 404s missing icon names** — render as empty `<span>`. Use `lucide:*` (universal set). `gravity-ui:*` only ships a handful of icons despite docs implying it's the canonical set.
 - **TanStack Start SPA build emits `_shell.html`, not `index.html`** — `server/internal/web/embed.go` fallback targets `_shell.html`. The `_shell.html` plus all dist/client/* are embedded into the Go binary via `just copy-client-dist`.
 - **`gen-types` is one-way** — Go `Tick` → TS `TickFrame`. Hand-editing the generated file gets stomped. Add fields in `tick.go` first, then `parquetRow`, then regenerate.
-- **`CurrentRaceTime > 0` is the freeroam-vs-race discriminator** today — see `data-needed.md` for confirmation status against real race captures.
+- **`CurrentRaceTime > 0` is the freeroam-vs-race discriminator** — but it *classifies* stints at close, it never splits them (ADR 0013); splits come from gap / IsRaceOn / car only. See `data-needed.md` for confirmation status against real race captures.
 - **DuckDB is single-writer.** Only one `forza-telemetry serve` process can hold the lock on `forza.duckdb` at a time. Starting a second instance fails with `Could not set lock on file ... Conflicting lock is held in <other-pid>`. Kill the prior process (`pgrep -f forza-telemetry | xargs kill`) before relaunching.
 - **Vite 8 uses rolldown, which logs `INVALID_ANNOTATION` non-fatally** against HeroUI Pro's pre-minified `/*#__PURE__*/` comments. `vite.config.ts` filters them via `build.rollupOptions.onwarn`. Build still succeeds either way; the filter is to keep real warnings visible.
 - **`react-resizable-panels@4` renamed its exports and changed size units** — it's `Group` (prop `orientation`, not `direction`) + `Separator`, not `PanelGroup`/`PanelResizeHandle`; `Panel` is unchanged. And **numeric** `defaultSize`/`minSize` are *pixels* — percentages must be strings (`"45%"`). A bare `defaultSize={45}` silently renders a 45px panel; `tsc` and the build stay green, only the browser shows it. See `components/LivePreview.tsx`.

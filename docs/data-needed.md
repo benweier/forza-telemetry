@@ -72,11 +72,11 @@ or what new questions surfaced.
 
 ## Detector tuning (all in `server/internal/storage/`)
 
-### Stint categorizer (`stint_type.go`)
-- **Partially confirmed (2026-05-31):** `CurrentRaceTime` was nonzero in 716,321/716,338 race-on packets from the real circuit+sprint capture — the `> 0` race-vs-freeroam discriminator holds while a race is running.
-- **Still open:** the entry/exit *transitions* — confirm it jumps nonzero exactly at race start and returns to zero at finish (the capture shows steady-state, not the edges).
-- **Code dep:** drives every stint split + final `stint_type` label.
-- **Edge case to verify:** single transient tick of opposite category causes a split today (no hysteresis). Real captures may show flapping that warrants a debounce window.
+### Stint classifier (`stint_type.go`, ADR 0013)
+- **Partially confirmed (2026-05-31):** `CurrentRaceTime` was nonzero in 716,321/716,338 race-on packets from the real circuit+sprint capture — the `> 0` race-vs-freeroam discriminator holds while a race is running. As of ADR 0013 it *classifies* the closed stint (`sawRace`) but never splits.
+- **Assumption to confirm:** entering/leaving a structured event passes through a loading screen that drops `IsRaceOn` — that flip is what puts races in their own stints now. If a capture shows an event starting with no flip, the race merges into the surrounding drive (classified sprint/circuit); decide then whether that's acceptable.
+- **Edge case to verify:** a single transient `IsRaceOn` flip splits with no hysteresis; sub-2s flaps become discarded micro-stints (harmless), but flapping longer than 2s would split real drives. Real captures may warrant a debounce window.
+- **Accepted risk:** `GameTSMillis` wraps its uint32 at ~49.7 days of continuous game uptime, which the session boundary (ADR 0012) would misread as a game relaunch. Implausible; noted for completeness.
 
 ---
 

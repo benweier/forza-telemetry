@@ -98,30 +98,34 @@ func (s *Store) ColdPath(sessionID, stintID string) string {
 // DB exposes the metadata database handle for read-only callers (REST endpoints).
 func (s *Store) DB() *sql.DB { return s.db }
 
-// NewWriter inserts a sessions row stamped at `now` and returns a Writer that
-// owns the Stint lifecycle for that Session.
-func (s *Store) NewWriter(now time.Time) (*Writer, error) {
-	sessionID := sessionIDFromTime(now)
-	if _, err := s.db.Exec(
-		`INSERT INTO sessions (id, started_at_ns) VALUES (?, ?)`,
-		sessionID, now.UnixNano(),
-	); err != nil {
-		return nil, fmt.Errorf("insert session: %w", err)
-	}
+// NewWriter returns a Writer that owns the Session + Stint lifecycle. Sessions
+// are data-driven (ADR 0012): no row is created here — the Writer opens one on
+// the first tick and closes it on a session boundary or at shutdown, so a
+// server idling with no game running never manufactures empty sessions.
+func (s *Store) NewWriter() *Writer {
 	return &Writer{
 		store:        s,
-		sessionID:    sessionID,
-		logger:       s.logger.With("session", sessionID),
-		gapThreshold: 10 * time.Second,
+		logger:       s.logger,
+		gapThreshold: stintGap,
+		sessionGap:   sessionGap,
 		minDuration:  minStintDuration,
 		minTicks:     minStintTicks,
 		rotateEvery:  segmentRotateEvery,
-	}, nil
+	}
 }
 
-// Stint persistence thresholds — shared by the Writer's close-time discard and
-// startup crash recovery (recover.go), which must apply identical rules.
+// Boundary + persistence thresholds — shared by the Writer's close-time
+// discard and startup crash recovery (recover.go), which must apply identical
+// rules.
 const (
+	// stintGap: packets stopping this long ends the Stint (ADR 0013). In
+	// active gameplay Forza streams continuously — a gap means the game was
+	// closed/suspended or the network dropped.
+	stintGap = 10 * time.Minute
+	// sessionGap: packets stopping this long ends the whole Session (ADR
+	// 0012). A GameTSMillis regression (game reboot) also ends it, regardless
+	// of gap.
+	sessionGap = time.Hour
 	minStintDuration = 2 * time.Second
 	// At ~60Hz, 180 ticks ≈ 3s of actual samples — a floor on data density
 	// independent of wall-clock duration (a stint can span 2s+ but arrive

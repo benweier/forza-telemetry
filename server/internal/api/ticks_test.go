@@ -29,10 +29,7 @@ func newRealTickServer(t *testing.T) (*Server, string) {
 		t.Fatalf("storage.New: %v", err)
 	}
 
-	writer, err := store.NewWriter(time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
+	writer := store.NewWriter()
 	broker := stream.NewBroker(64)
 	sub := broker.Subscribe(false)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,13 +54,12 @@ func newRealTickServer(t *testing.T) (*Server, string) {
 		})
 	}
 
-	// Wait for stint row to materialise.
+	// Wait for stint row to materialise (sessions are data-driven now, so the
+	// ID isn't knowable up front — poll the table itself).
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var n int
-		_ = store.DB().QueryRow(
-			`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.SessionID(),
-		).Scan(&n)
+		_ = store.DB().QueryRow(`SELECT COUNT(*) FROM stints`).Scan(&n)
 		if n >= 1 {
 			break
 		}
@@ -75,7 +71,10 @@ func newRealTickServer(t *testing.T) (*Server, string) {
 
 	t.Cleanup(func() { _ = store.Close(context.Background()) })
 
-	stintID := fmt.Sprintf("%s_0001", writer.SessionID())
+	var stintID string
+	if err := store.DB().QueryRow(`SELECT id FROM stints ORDER BY started_at_ns LIMIT 1`).Scan(&stintID); err != nil {
+		t.Fatalf("no stint persisted: %v", err)
+	}
 	return New(config.APIConfig{Addr: ":0"}, broker, store, logger), stintID
 }
 

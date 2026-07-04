@@ -1,5 +1,10 @@
 # Stint boundaries split on Stint Type and Car changes
 
+> **Superseded by ADR 0013 (split axes only):** stints now split on a
+> 10-minute gap, an IsRaceOn flip, or a Car change — CurrentRaceTime
+> classifies at close instead of splitting. The discard rules in the revision
+> below remain in force.
+
 > **Revision (post-implementation):** the discard criteria were widened beyond
 > the original sub-2s rule. A closed Stint is now also discarded if it carries
 > fewer than `minTicks` samples (default 180 ≈ 3s at 60Hz — a data-density floor

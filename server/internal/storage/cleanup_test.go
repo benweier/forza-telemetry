@@ -110,23 +110,22 @@ func TestDiscardCause(t *testing.T) {
 		name       string
 		durNS      int64
 		tickCount  int64
-		cat        stintCategory
+		raceOn     bool
 		carOrdinal int32
 		want       string
 	}{
-		{"keeps a real race stint", 30e9, 1800, categoryRace, 1651, ""},
-		{"keeps a real freeroam stint", 30e9, 1800, categoryFreeroam, 1651, ""},
-		{"sub-min wins over everything", 1e9, 0, categoryIdle, 0, "sub-min duration"},
-		{"too few ticks", 30e9, 179, categoryRace, 1651, "too few ticks"},
-		{"exactly min ticks kept", 30e9, 180, categoryRace, 1651, ""},
-		{"thin outranks idle", 30e9, 10, categoryIdle, 1651, "too few ticks"},
-		{"idle discarded", 30e9, 1800, categoryIdle, 1651, "idle"},
-		{"no car discarded", 30e9, 1800, categoryRace, 0, "no car"},
-		{"idle outranks no-car", 30e9, 1800, categoryIdle, 0, "idle"},
+		{"keeps a real driving stint", 30e9, 1800, true, 1651, ""},
+		{"sub-min wins over everything", 1e9, 0, false, 0, "sub-min duration"},
+		{"too few ticks", 30e9, 179, true, 1651, "too few ticks"},
+		{"exactly min ticks kept", 30e9, 180, true, 1651, ""},
+		{"thin outranks idle", 30e9, 10, false, 1651, "too few ticks"},
+		{"idle discarded", 30e9, 1800, false, 1651, "idle"},
+		{"no car discarded", 30e9, 1800, true, 0, "no car"},
+		{"idle outranks no-car", 30e9, 1800, false, 0, "idle"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := discardCause(time.Duration(c.durNS), time.Duration(minDur), c.tickCount, minTicks, c.cat, c.carOrdinal)
+			got := discardCause(time.Duration(c.durNS), time.Duration(minDur), c.tickCount, minTicks, c.raceOn, c.carOrdinal)
 			if got != c.want {
 				t.Errorf("discardCause = %q, want %q", got, c.want)
 			}

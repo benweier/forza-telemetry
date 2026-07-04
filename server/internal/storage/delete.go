@@ -146,8 +146,10 @@ func removeParquet(logger *slog.Logger, stintID, path string) {
 			logger.Warn("remove stint parquet segment", "stint", stintID, "path", m, "err", err)
 		}
 	}
-	// The now-empty segment directory; non-empty/missing is fine.
+	// The now-empty segment directory, then its per-session parent if this was
+	// the session's last stint. Both best-effort — non-empty/missing is fine.
 	_ = os.Remove(filepath.Dir(path))
+	_ = os.Remove(filepath.Dir(filepath.Dir(path)))
 }
 
 // stintParentDir returns the per-session directory that holds a stint's

@@ -5,11 +5,11 @@ Ingests, stores, and visualizes the UDP "Data Out" telemetry stream from Forza H
 ## Language
 
 **Session**:
-The outer container for capture. **As implemented**: one run of the `forza-telemetry serve` process — the row is created at server start and closed at shutdown. The original intent ("one continuous arrival of Data Out packets, typically a game launch") is not what the code does: a server left running across two game launches records one Session, and gap-based session splitting does not exist. If a data-driven boundary is ever wanted, that is a deliberate model change, not a bug fix.
+The outer container for capture: one continuous sitting of Data Out packets. Born from data (the row is created on the first packet; its ID is that packet's arrival time) and ended by data — a silence of ≥ 1 hour, or the game's own clock (`GameTSMillis`) jumping backwards (a relaunch). A Session whose Stints were all discarded is deleted rather than kept empty. See ADR 0012.
 _Avoid_: Run, capture, recording.
 
 **Stint**:
-A contiguous span of in-car driving inside a **Session**, bounded by: (a) a packet-arrival gap of ≥ 10 seconds, (b) a change in **Stint Type** (e.g. free-roam → race start), or (c) a change in **Car**. Stints shorter than 2 seconds are discarded as noise; so are `idle` Stints and Stints that never saw a real **Car** (`car_ordinal` 0) — only `freeroam` / `sprint` / `circuit` Stints with a known **Car** are persisted (see ADR 0006). Has exactly one **Stint Type** and one **Car** for its entire duration. A **Session** contains many **Stints**.
+A contiguous span of in-car driving inside a **Session**, bounded by exactly three triggers (ADR 0013): (a) a packet-arrival gap of ≥ 10 minutes, (b) an `IsRaceOn` flip (gameplay ↔ menus/loading/pause), or (c) a change in **Car**. Stints shorter than 2 seconds or thinner than 180 ticks are discarded as noise; so are `idle` Stints and Stints that never saw a real **Car** (`car_ordinal` 0) — only `freeroam` / `sprint` / `circuit` Stints with a known **Car** are persisted (ADR 0006's discard rules). Has exactly one `IsRaceOn` state and one **Car** for its entire duration; its **Stint Type** is a close-time classification, not a split invariant. A **Session** contains many **Stints**.
 _Avoid_: Segment, drive, leg.
 
 **Lap**:
@@ -25,7 +25,7 @@ The raw UDP datagram as it arrives from Forza's Data Out. Strictly the wire-form
 _Avoid_: Tick, frame, message.
 
 **Stint Type**:
-An automatically-assigned classification of a **Stint** based on telemetry-only heuristics. Initial values: `circuit` (lap-based race), `sprint` (timed event with no laps), `freeroam` (in-car driving with no active event), `idle` (paused/menu/loading). `idle` still drives Stint splitting (so race time never merges with menu time) but `idle` Stints are not persisted — only freeroam/sprint/circuit reach the DB.
+An automatically-assigned classification of a **Stint**, resolved at close from what its Ticks showed (ADR 0013): `idle` (IsRaceOn false — paused/menu/loading; never persisted), `freeroam` (driving, no race time observed), `sprint` (saw `CurrentRaceTime > 0`, no completed laps), `circuit` (saw race time and the lap counter advanced). A race entered without an `IsRaceOn` flip merges into the surrounding drive and classifies as sprint/circuit — in practice event loading screens flip `IsRaceOn`, so races land in their own Stints.
 _Avoid_: Mode, category (those are for user-applied tags).
 
 **Tag** _(planned — not yet implemented)_:

@@ -39,17 +39,17 @@ func TestWriterGapSplit(t *testing.T) {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 	// 15s gap (> 10s threshold) → split.
-	base += int64(15 * time.Second)
+	base += int64(15 * time.Minute)
 	for i := 0; i < 5; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stints := readStints(t, store, writer.sessionID)
+	stints := readStints(t, store)
 	if len(stints) != 2 {
 		t.Fatalf("want 2 stints, got %d", len(stints))
 	}
@@ -63,17 +63,18 @@ func TestWriterGapSplit(t *testing.T) {
 	}
 }
 
-func TestWriterTypeSplit(t *testing.T) {
+// ADR 0013: CurrentRaceTime no longer splits — a race entered without an
+// IsRaceOn flip stays in the same stint, which classifies by "did it ever
+// race" (sawRace) at close.
+func TestWriterRaceTransitionDoesNotSplit(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close(context.Background())
 
 	writer, sub, done, cancel := startWriter(t, store)
 	defer cancel()
 
-	// 5 freeroam ticks over 2.5s, then 5 race ticks over 2.5s, adjacent (no
-	// gap). Both categories persist (unlike idle), so the type-change split is
-	// observable as 2 stored stints. (Idle's non-persistence is covered by
-	// TestWriterDiscardsIdleAndNoCar.)
+	// 5 freeroam ticks then 5 race ticks, adjacent, IsRaceOn true throughout:
+	// one stint, classified sprint because it saw race time.
 	base := int64(0)
 	for i := 0; i < 5; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
@@ -83,19 +84,57 @@ func TestWriterTypeSplit(t *testing.T) {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, currentRaceTime: 10}))
 	}
 
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 1)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stints := readStints(t, store, writer.sessionID)
-	if len(stints) != 2 {
-		t.Fatalf("want 2 stints, got %d", len(stints))
+	stints := readStints(t, store)
+	if len(stints) != 1 {
+		t.Fatalf("race transition must not split: want 1 stint, got %d", len(stints))
 	}
-	wantTypes := []string{"freeroam", "sprint"}
+	if stints[0].tickCount != 10 {
+		t.Errorf("tick_count want 10 got %d", stints[0].tickCount)
+	}
+	if stints[0].stintType == nil || *stints[0].stintType != "sprint" {
+		t.Errorf("type want sprint got %v", stints[0].stintType)
+	}
+}
+
+// ADR 0013: an IsRaceOn flip IS a split — driving → menus → driving yields two
+// persisted driving stints (the idle middle is discarded).
+func TestWriterRaceStateSplit(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	base := int64(0)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+	base += 5 * int64(500*time.Millisecond)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: false}))
+	}
+	base += 5 * int64(500*time.Millisecond)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+
+	waitForStints(t, store, 2)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	stints := readStints(t, store)
+	if len(stints) != 2 {
+		t.Fatalf("want 2 driving stints (idle middle discarded), got %d", len(stints))
+	}
 	for i, s := range stints {
-		if s.stintType == nil || *s.stintType != wantTypes[i] {
-			t.Errorf("stint %d: type want %q got %v", i, wantTypes[i], s.stintType)
+		if s.stintType == nil || *s.stintType != "freeroam" {
+			t.Errorf("stint %d: type want freeroam got %v", i, s.stintType)
 		}
 	}
 }
@@ -115,7 +154,7 @@ func TestWriterDiscardsIdleAndNoCar(t *testing.T) {
 	// Block B: 15s gap then freeroam with no car (CarOrdinal 0) — discarded for
 	// having no car. makeTick defaults a zero ordinal to 123, so pass it through
 	// a tickOpts sentinel of -1 mapped to 0 below.
-	base += int64(15 * time.Second)
+	base += int64(15 * time.Minute)
 	for i := 0; i < 5; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, carOrdinal: noCarSentinel}))
 	}
@@ -126,9 +165,7 @@ func TestWriterDiscardsIdleAndNoCar(t *testing.T) {
 	_ = <-done
 
 	var n int
-	if err := store.db.QueryRow(
-		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.sessionID,
-	).Scan(&n); err != nil {
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stints`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
@@ -163,9 +200,7 @@ func TestWriterDiscardsThinStint(t *testing.T) {
 	_ = <-done
 
 	var n int
-	if err := store.db.QueryRow(
-		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.sessionID,
-	).Scan(&n); err != nil {
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stints`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
@@ -190,12 +225,12 @@ func TestWriterCarSplit(t *testing.T) {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true, currentRaceTime: 10, carOrdinal: 200}))
 	}
 
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stints := readStints(t, store, writer.sessionID)
+	stints := readStints(t, store)
 	if len(stints) != 2 {
 		t.Fatalf("want 2 stints, got %d", len(stints))
 	}
@@ -219,18 +254,27 @@ func TestWriterShortStintDiscarded(t *testing.T) {
 	_ = <-done
 
 	var n int
-	if err := store.db.QueryRow(
-		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, writer.sessionID,
-	).Scan(&n); err != nil {
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stints`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
 		t.Errorf("short stint must be discarded, got %d rows", n)
 	}
-	// Parquet segments and their directory should be removed too.
-	dir := store.HotDir(writer.sessionID, "0001")
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Errorf("short-stint parquet dir should be removed, stat err: %v", err)
+	// Parquet segments should be removed too — no stint dirs anywhere under hot/.
+	entries, err := os.ReadDir(filepath.Join(store.dataDir, "parquet", "hot"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("hot dir should be empty after discard, found %s", e.Name())
+	}
+	// And the session that held only the discarded stint is deleted (ADR 0012).
+	var sessions int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 0 {
+		t.Errorf("session with no surviving stints must be discarded, got %d rows", sessions)
 	}
 }
 
@@ -258,18 +302,18 @@ func TestWriterRotatesSegments(t *testing.T) {
 	// alone raced tick consumption (the row exists from the first tick, so a
 	// slow consumer could be cancelled mid-stream; -race caught this at 7/10).
 	// Stint 2 is a 1-tick throwaway that shutdown discards as sub-minimum.
-	writer.broker.Publish(makeTick(base+int64(20*time.Second), tickOpts{
+	writer.broker.Publish(makeTick(base+int64(15*time.Minute), tickOpts{
 		isRaceOn:        true,
 		currentRaceTime: 10,
 		carOrdinal:      100,
 	}))
 
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stints := readStints(t, store, writer.sessionID)
+	stints := readStints(t, store)
 	if len(stints) != 1 {
 		t.Fatalf("want 1 surviving stint (throwaway discarded), got %d", len(stints))
 	}
@@ -312,7 +356,7 @@ func TestWriterResolvesCircuitVsSprint(t *testing.T) {
 		}))
 	}
 	// 15s gap → split.
-	base += int64(15 * time.Second)
+	base += int64(15 * time.Minute)
 	// Race stint B: LapNumber 0→1→2 → circuit.
 	for i := 0; i < 6; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{
@@ -323,12 +367,12 @@ func TestWriterResolvesCircuitVsSprint(t *testing.T) {
 		}))
 	}
 
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stints := readStints(t, store, writer.sessionID)
+	stints := readStints(t, store)
 	if len(stints) != 2 {
 		t.Fatalf("want 2 stints, got %d", len(stints))
 	}
@@ -379,12 +423,21 @@ func TestWriterEmitsAggregates(t *testing.T) {
 	// Set GearShift true on the transition tick.
 	// (Skipped — the integration test only asserts on fields not requiring Enrich.)
 
-	waitForStints(t, store, writer.sessionID, 1)
+	// A throwaway gap tick forces the stint to CLOSE deterministically before
+	// asserting (waiting on the row alone races tick consumption); shutdown
+	// discards the 1-tick follow-up as sub-minimum.
+	writer.broker.Publish(makeTick(int64(total)*step+int64(15*time.Minute), tickOpts{isRaceOn: true, carOrdinal: 100}))
+
+	waitForStints(t, store, 2)
 	cancel()
 	sub.Close()
 	_ = <-done
 
-	stintID := writer.sessionID + "_0001"
+	stints := readStints(t, store)
+	if len(stints) != 1 {
+		t.Fatalf("want 1 surviving stint, got %d", len(stints))
+	}
+	stintID := stints[0].id
 
 	// stint_summary
 	var topSpeed, peakLatG, peakBrake float64
@@ -456,10 +509,7 @@ type writerHandle struct {
 
 func startWriter(t *testing.T, store *Store) (*writerHandle, *stream.Subscription, chan error, context.CancelFunc) {
 	t.Helper()
-	w, err := store.NewWriter(time.Date(2026, 5, 24, 17, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
+	w := store.NewWriter()
 	// These tests exercise splitting / typing / aggregation with small synthetic
 	// stints (a handful of ticks). Disable the production 180-tick density floor
 	// so those stints persist; TestWriterDiscardsThinStint covers the floor.
@@ -494,6 +544,9 @@ type tickOpts struct {
 	positionX       float32
 	positionZ       float32
 	longitudinalG   float32
+	// gameTS overrides the derived GameTSMillis (session game-restart tests
+	// need the game clock decoupled from arrival time). 0 → derived.
+	gameTS uint32
 }
 
 // noCarSentinel lets a test request a genuine CarOrdinal of 0 (makeTick
@@ -508,9 +561,13 @@ func makeTick(serverRecvNS int64, o tickOpts) *tick.Tick {
 	case noCarSentinel:
 		car = 0
 	}
+	gameTS := o.gameTS
+	if gameTS == 0 {
+		gameTS = uint32(serverRecvNS / int64(time.Millisecond))
+	}
 	return &tick.Tick{
 		ServerRecvNS:        serverRecvNS,
-		GameTSMillis:        uint32(serverRecvNS / int64(time.Millisecond)),
+		GameTSMillis:        gameTS,
 		IsRaceOn:            o.isRaceOn,
 		CurrentRaceTime:     o.currentRaceTime,
 		LapNumber:           o.lapNumber,
@@ -526,13 +583,13 @@ func makeTick(serverRecvNS int64, o tickOpts) *tick.Tick {
 	}
 }
 
-func waitForStints(t *testing.T, store *Store, sessionID string, want int) {
+func waitForStints(t *testing.T, store *Store, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var n int
 		if err := store.db.QueryRow(
-			`SELECT COUNT(*) FROM stints WHERE session_id = ?`, sessionID,
+			`SELECT COUNT(*) FROM stints`,
 		).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
@@ -544,11 +601,11 @@ func waitForStints(t *testing.T, store *Store, sessionID string, want int) {
 	t.Fatalf("timeout waiting for %d stints", want)
 }
 
-func readStints(t *testing.T, store *Store, sessionID string) []stintRow {
+func readStints(t *testing.T, store *Store) []stintRow {
 	t.Helper()
 	rows, err := store.db.Query(
 		`SELECT id, ordinal, tick_count, stint_type, parquet_path
-		 FROM stints WHERE session_id = ? ORDER BY ordinal`, sessionID,
+		 FROM stints ORDER BY ordinal`,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -635,14 +692,14 @@ func TestWriterAggregationOffHotPath(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
-	base += int64(15 * time.Second)
+	base += int64(15 * time.Minute)
 	for i := 0; i < 5; i++ {
 		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
 	}
 
 	// Stint B's row appearing while A's aggregation is still blocked is the
 	// proof the hot path no longer waits on the heavy scans.
-	waitForStints(t, store, writer.sessionID, 2)
+	waitForStints(t, store, 2)
 
 	var summaries int
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM stint_summary`).Scan(&summaries); err != nil {
@@ -662,5 +719,177 @@ func TestWriterAggregationOffHotPath(t *testing.T) {
 	}
 	if summaries != 2 {
 		t.Errorf("want 2 summaries after shutdown drain, got %d", summaries)
+	}
+}
+
+// ---------- Session lifecycle (ADR 0012: data-driven boundaries) ----------
+
+type sessionRow struct {
+	id      string
+	started int64
+	ended   *int64
+}
+
+func readSessions(t *testing.T, store *Store) []sessionRow {
+	t.Helper()
+	rows, err := store.db.Query(`SELECT id, started_at_ns, ended_at_ns FROM sessions ORDER BY started_at_ns`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []sessionRow
+	for rows.Next() {
+		var s sessionRow
+		if err := rows.Scan(&s.id, &s.started, &s.ended); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func stintCountForSession(t *testing.T, store *Store, sessionID string) int {
+	t.Helper()
+	var n int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM stints WHERE session_id = ?`, sessionID,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// Sessions are born from data and split on a >=1h silence; the old session's
+// end is its last tick's arrival, not wall-clock at split time.
+func TestWriterSessionGapSplit(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	base := int64(0)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+	lastOfFirst := base + 4*int64(500*time.Millisecond)
+	base += int64(2 * time.Hour)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{isRaceOn: true}))
+	}
+
+	waitForStints(t, store, 2)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	sessions := readSessions(t, store)
+	if len(sessions) != 2 {
+		t.Fatalf("want 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].started != 0 {
+		t.Errorf("session 1 started: want 0 got %d", sessions[0].started)
+	}
+	if sessions[0].ended == nil || *sessions[0].ended != lastOfFirst {
+		t.Errorf("session 1 ended: want %d got %v", lastOfFirst, sessions[0].ended)
+	}
+	if sessions[1].started != base {
+		t.Errorf("session 2 started: want %d got %d", base, sessions[1].started)
+	}
+	if sessions[1].ended == nil {
+		t.Error("session 2 must be closed at shutdown")
+	}
+	for _, s := range sessions {
+		if n := stintCountForSession(t, store, s.id); n != 1 {
+			t.Errorf("session %s: want 1 stint got %d", s.id, n)
+		}
+	}
+}
+
+// A GameTSMillis regression (game relaunch) splits the session even with no
+// arrival gap at all.
+func TestWriterSessionSplitsOnGameRestart(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	base := int64(0)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{
+			isRaceOn: true,
+			gameTS:   10_000_000 + uint32(i)*500,
+		}))
+	}
+	// Only 60s later by arrival, but the game clock restarted near zero.
+	base += int64(60 * time.Second)
+	for i := 0; i < 5; i++ {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{
+			isRaceOn: true,
+			gameTS:   1_000 + uint32(i)*500,
+		}))
+	}
+
+	waitForStints(t, store, 2)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	if sessions := readSessions(t, store); len(sessions) != 2 {
+		t.Fatalf("game restart must split the session: want 2, got %d", len(sessions))
+	}
+	if stints := readStints(t, store); len(stints) != 2 {
+		t.Fatalf("session split must also close the stint: want 2, got %d", len(stints))
+	}
+}
+
+// Out-of-order UDP delivery jitters GameTSMillis backwards by fractions of a
+// second — regressions inside the tolerance must NOT split anything.
+func TestWriterSmallTSRegressionDoesNotSplit(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	writer, sub, done, cancel := startWriter(t, store)
+	defer cancel()
+
+	base := int64(0)
+	ts := []uint32{100_000, 100_500, 101_000, 70_000 + 41_000, 101_500, 102_000} // one 30s dip
+	for i, g := range ts {
+		writer.broker.Publish(makeTick(base+int64(i)*int64(500*time.Millisecond), tickOpts{
+			isRaceOn: true,
+			gameTS:   g,
+		}))
+	}
+	// Throwaway gap tick closes stint 1 deterministically before asserting.
+	writer.broker.Publish(makeTick(base+int64(15*time.Minute), tickOpts{isRaceOn: true}))
+
+	waitForStints(t, store, 2)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	if sessions := readSessions(t, store); len(sessions) != 1 {
+		t.Fatalf("tolerated regression split the session: want 1, got %d", len(sessions))
+	}
+	stints := readStints(t, store)
+	if len(stints) != 1 || stints[0].tickCount != int64(len(ts)) {
+		t.Fatalf("want 1 stint with %d ticks, got %+v", len(ts), stints)
+	}
+}
+
+// A server left running with no game sending must not manufacture sessions.
+func TestWriterNoTicksNoSession(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close(context.Background())
+
+	_, sub, done, cancel := startWriter(t, store)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	sub.Close()
+	_ = <-done
+
+	if sessions := readSessions(t, store); len(sessions) != 0 {
+		t.Errorf("want 0 sessions with no data, got %d", len(sessions))
 	}
 }
